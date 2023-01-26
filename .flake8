@@ -4,7 +4,7 @@ statistics=true
 max-line-length = 80
 per-file-ignores =
     # line too long
-    examples/*/*.py: E501,
+    valle/bin/train.py: E501,
 
 exclude =
   .git,

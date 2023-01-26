@@ -6,4 +6,6 @@ exp*/
 *.pt
 log
 .DS_Store
-.vscode/
+.vscode
+egs/*/data
+valle/version.py

@@ -7,6 +7,11 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 To get up and running quickly just follow the steps below:
 
 ```
+# phonemizer
+apt-get install espeak-ng
+## OSX: brew install espeak
+pip install phonemizer
+
 # lhotse
 # https://github.com/lhotse-speech/lhotse/pull/956
 pip install git+https://github.com/lhotse-speech/lhotse
