@@ -1,6 +1,27 @@
 Language : 🇺🇸 | [🇨🇳](./README.zh-CN.md)
 
-Unofficial VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)) open source implementation.
+An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)).
+
+## Installation
+
+To get up and running quickly just follow the steps below:
+
+```
+# lhotse
+# https://github.com/lhotse-speech/lhotse/pull/956
+pip install git+https://github.com/lhotse-speech/lhotse
+
+# k2 icefall
+git clone https://github.com/k2-fsa/icefall
+cd icefall
+pip install -r requirements.txt
+export PYTHONPATH=`pwd`/../icefall:$PYTHONPATH
+
+# valle
+git clone https://github.com/lifeiteng/valle.git
+cd valle
+pip install .
+```
 
 ## Getting started
 
@@ -10,14 +31,7 @@ examples found in the [examples] subdirectory.
 [examples]: examples/
 [paper]: https://arxiv.org/abs/2301.02111
 
-## Installation
 
-To get up and running quickly just follow the steps below:
-
-```
-# TBD
-
-```
 
 ## NOTE
 

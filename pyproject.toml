@@ -1,0 +1,11 @@
+[tool.isort]
+profile = "black"
+skip = ["valle/__init__.py"]
+
+[tool.black]
+force-exclude = '''
+/(
+    \.git
+  | \.github
+)/
+'''
