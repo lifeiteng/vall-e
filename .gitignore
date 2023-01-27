@@ -1,0 +1,11 @@
+valle.egg-info/
+__pycache__
+path.sh
+exp
+exp*/
+*.pt
+log
+.DS_Store
+.vscode
+egs/*/data
+valle/version.py

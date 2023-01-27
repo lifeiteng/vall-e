@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 21.6b0
+    hooks:
+      - id: black
+        args: [--line-length=80]
+        additional_dependencies: ['click==8.0.1']
+        exclude: icefall\/__init__\.py
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 3.9.2
+    hooks:
+      - id: flake8
+        args: [--max-line-length=80]
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.9.2
+    hooks:
+      - id: isort
+        args: [--profile=black, --line-length=80]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.0.1
+    hooks:
+      - id: check-executables-have-shebangs
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: trailing-whitespace
