@@ -132,12 +132,6 @@ tests_require = [
     # "pytest-forked==1.4.0",
     # "pytest-xdist==2.5.0",
     # "pytest-cov==4.0.0",
-    # "flake8==5.0.4",
-    # "coverage==6.5.0",
-    # "hypothesis==6.56.0",
-    # "black==22.3.0",
-    # "isort==5.10.1",
-    # "pre-commit>=2.17.0,<=2.19.0",
 ]
 workflow_requires = [""]
 dev_requires = sorted(

@@ -120,33 +120,17 @@ def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
 
 def add_model_arguments(parser: argparse.ArgumentParser):
     parser.add_argument(
-        "--num-encoder-layers",
-        type=int,
-        default=1,
-        help="Number of Encoder layers.",
-    )
-
-    parser.add_argument(
-        "--encoder-dim",
-        type=int,
-        default=1024,
-        help="Embedding dimension of Encoder layers",
-    )
-
-    parser.add_argument(
-        "--nhead",
-        type=int,
-        default=16,
-        help="Number of attention heads in the Encoder and Decoder layers.",
-    )
-
-    parser.add_argument(
         "--decoder-dim",
         type=int,
         default=1024,
         help="Embedding dimension in the decoder model.",
     )
-
+    parser.add_argument(
+        "--nhead",
+        type=int,
+        default=16,
+        help="Number of attention heads in the Decoder layers.",
+    )
     parser.add_argument(
         "--num-decoder-layers",
         type=int,
@@ -342,7 +326,7 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 100,
+            "log_interval": 10,  # 10: debug 100+: train
             "reset_interval": 200,
             "valid_interval": 5000,  # For the 100h subset, use 800
             # parameters for TTS
@@ -508,12 +492,11 @@ def compute_loss(
     assert audio_features.ndim == 3
 
     with torch.set_grad_enabled(is_training):
-        loss = model(
+        _, loss = model(
             x=text_tokens,
             x_lens=text_tokens_lens,
             y=audio_features,
             y_lens=audio_features_lens,
-            layer_idx="TODO",
         )
 
     assert loss.requires_grad == is_training
@@ -639,11 +622,13 @@ def train_one_epoch(
             # in the batch and there is no normalization to it so far.
             scaler.scale(loss).backward()
             set_batch_count(model, params.batch_idx_train)
-            scheduler.step_batch(params.batch_idx_train)
 
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
+
+            scheduler.step()
+            # scheduler.step_batch(params.batch_idx_train)
         except:  # noqa
             display_and_save_batch(batch, params=params)
             raise
