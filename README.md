@@ -2,6 +2,27 @@ Language : 🇺🇸 | [🇨🇳](./README.zh-CN.md)
 
 An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)).
 
+## Demo
+
+* [official demo](https://valle-demo.github.io/)
+* TODO: reproduced results
+
+## Broader impacts
+
+> Since VALL-E could synthesize speech that maintains speaker identity, it may carry potential risks in misuse of the model, such as spoofing voice identification or impersonating a specific speaker.
+
+We will not provide well-trained models and services.
+
+## Progress
+
+- [x] Text and Audio Tokenizer
+- [x] Dataset module and loaders
+- [ ] VALL-E modules
+- [ ] update console_scripts and REAMDE.zh-CN
+- [ ] Training & Debug
+- [ ] Inference: In-Context Learning via Prompting
+
+
 ## Installation
 
 To get up and running quickly just follow the steps below:
@@ -25,7 +46,7 @@ export PYTHONPATH=`pwd`/../icefall:$PYTHONPATH
 # valle
 git clone https://github.com/lifeiteng/valle.git
 cd valle
-pip install .
+pip install -e .
 ```
 
 ## Getting started
@@ -34,14 +55,17 @@ The quickest way to get started is to take a look at the detailed working code
 examples found in the [examples] subdirectory.
 
 [examples]: examples/
-[paper]: https://arxiv.org/abs/2301.02111
+[paper]: https://arxiv.org/abs/2301.02111]
 
 
+## Training
 
-## NOTE
-
-* model-mini config: a mini model for debuging
+* model-mini config: a mini config for debuging
 * model-raw config: same as the paper
+
+
+## Inference: In-Context Learning via Prompting
+
 * TBD
 
 ## Contributing
