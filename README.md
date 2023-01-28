@@ -1,8 +1,9 @@
 Language : 🇺🇸 | [🇨🇳](./README.zh-CN.md)
 
+An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)).
+
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
-An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)).
 
 ## Demo
 
@@ -79,6 +80,8 @@ examples found in the [examples] subdirectory.
 ## Training
 ```
 cd egs/libritts
+
+# Those stages are very time-consuming
 ./prepare.sh
 
 # nano
