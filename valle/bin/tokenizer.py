@@ -111,7 +111,10 @@ def main():
 
     # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
     # by remove encodec weight_norm
-    num_jobs = min(16, os.cpu_count())
+    num_jobs = min(8, os.cpu_count())
+    # TODO: Fix CUDA parallel jobs
+    if torch.cuda.is_available():
+        num_jobs = 1
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -119,7 +122,9 @@ def main():
     extractor = AudioTokenExtractor(AudioTokenConfig())
     with get_executor() as ex:
         for partition, m in manifests.items():
-            logging.info(f"Processing partition: {partition}")
+            logging.info(
+                f"Processing partition: {partition} CUDA: {torch.cuda.is_available()}"
+            )
             cut_set = CutSet.from_manifests(
                 recordings=m["recordings"],
                 supervisions=m["supervisions"],

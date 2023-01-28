@@ -114,9 +114,18 @@ class AudioTokenizer:
         model.set_target_bandwidth(6.0)
         remove_encodec_weight_norm(model)
 
-        self.codec = model
+        device = torch.device("cpu")
+        if torch.cuda.is_available():
+            device = torch.device("cuda:0")
+        self._device = device
+
+        self.codec = model.to(device)
         self.sample_rate = model.sample_rate
         self.channels = model.channels
+
+    @property
+    def device(self):
+        return self._device
 
     def encode(self, wav: torch.Tensor) -> torch.Tensor:
         return self.codec.encode(wav)
@@ -175,7 +184,10 @@ class AudioTokenExtractor(FeatureExtractor):
         else:
             raise ValueError()
 
-        encoded_frames = self.config.tokenizer.encode(samples.detach())
+        device = self.config.tokenizer.device
+        encoded_frames = self.config.tokenizer.encode(
+            samples.detach().to(device)
+        )
         codes = encoded_frames[0][0]  # [B, n_q, T]
         if True:
             duration = round(samples.shape[-1] / sampling_rate, ndigits=12)
