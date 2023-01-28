@@ -82,7 +82,9 @@ def discover_valle_version() -> str:
             )
             > 0
         )
-        git_commit = git_commit + ".dirty" if dirty_commit else git_commit + ".clean"
+        git_commit = (
+            git_commit + ".dirty" if dirty_commit else git_commit + ".clean"
+        )
         source_version = f"+git.{git_commit}"
     except Exception:
         source_version = ".unknownsource"
@@ -94,7 +96,9 @@ def discover_valle_version() -> str:
 
 
 def mark_valle_version(version: str) -> None:
-    (project_root / "valle" / "version.py").write_text(f'__version__ = "{version}"')
+    (project_root / "valle" / "version.py").write_text(
+        f'__version__ = "{version}"'
+    )
 
 
 VALLE_VERSION = discover_valle_version()
@@ -103,9 +107,7 @@ mark_valle_version(VALLE_VERSION)
 
 install_requires = [
     "encodec",
-    "lhotse",
     "phonemizer",
-    "k2",
 ]
 
 try:
@@ -126,7 +128,9 @@ try:
 except ImportError:
     install_requires.extend(["torch", "torchaudio"])
 
-docs_require = (project_root / "docs" / "requirements.txt").read_text().splitlines()
+docs_require = (
+    (project_root / "docs" / "requirements.txt").read_text().splitlines()
+)
 tests_require = [
     # "pytest==7.1.3",
     # "pytest-forked==1.4.0",
@@ -164,11 +168,7 @@ setup(
     license="Apache-2.0 License",
     packages=find_packages(exclude=["test", "test.*"]),
     include_package_data=True,
-    entry_points={
-        "console_scripts": [
-            "valle=valle.bin.valle:cli",
-        ]
-    },
+    entry_points={},
     install_requires=install_requires,
     extras_require={
         "docs": docs_require,

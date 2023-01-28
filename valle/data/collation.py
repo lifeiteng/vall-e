@@ -1,9 +1,10 @@
 from pathlib import Path
 from typing import List, Tuple
 
-import k2
 import numpy as np
 import torch
+
+from valle.utils import SymbolTable
 
 
 class TextTokenCollater:
@@ -114,7 +115,7 @@ class TextTokenCollater:
 
 def get_text_token_collater(text_tokens_file: str) -> TextTokenCollater:
     text_tokens_path = Path(text_tokens_file)
-    unique_tokens = k2.SymbolTable.from_file(text_tokens_path)
+    unique_tokens = SymbolTable.from_file(text_tokens_path)
     collater = TextTokenCollater(
         unique_tokens.symbols, add_bos=True, add_eos=True
     )

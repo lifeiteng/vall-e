@@ -18,7 +18,9 @@ We will not provide well-trained models and services.
 - [x] Text and Audio Tokenizer
 - [x] Dataset module and loaders
 - [ ] VALL-E modules
-- [ ] update console_scripts and REAMDE.zh-CN
+    - [x] AR Decoder
+    - [ ] NonAR Decoder
+- [ ] update REAMDE.zh-CN
 - [ ] Training & Debug
 - [ ] Inference: In-Context Learning via Prompting
 
@@ -37,7 +39,7 @@ pip install phonemizer
 # https://github.com/lhotse-speech/lhotse/pull/956
 pip install git+https://github.com/lhotse-speech/lhotse
 
-# k2 icefall
+# icefall
 git clone https://github.com/k2-fsa/icefall
 cd icefall
 pip install -r requirements.txt
@@ -59,9 +61,20 @@ examples found in the [examples] subdirectory.
 
 
 ## Training
+```
+cd egs/libritts
+./prepare.sh
 
-* model-mini config: a mini config for debuging
-* model-raw config: same as the paper
+# nano
+python3 bin/trainer.py \
+  --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+  --exp-dir exp/valle_nano
+
+# same as paper
+python3 bin/trainer.py \
+  --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
+  --exp-dir exp/valle
+```
 
 
 ## Inference: In-Context Learning via Prompting

@@ -25,7 +25,7 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
 cd egs/libritts
 ./prepare.sh
 
-valle train \
+./bin/trainer \
   --world-size 4 \
   --num-epochs 20 \
   --start-epoch 1 \
@@ -33,7 +33,7 @@ valle train \
   --max-duration 400
 
 # For mix precision training:
-valle train \
+./bin/trainer \
   --world-size 4 \
   --num-epochs 20 \
   --start-epoch 1 \

@@ -16,7 +16,8 @@
 Phonemize Text and EnCodec Audio.
 
 Usage example:
-    valle tokenize --src_dir ./data/manifests --output_dir ./data/tokenized
+    python3 bin/tokenizer.py \
+        --src_dir ./data/manifests --output_dir ./data/tokenized
 
 """
 import argparse
@@ -24,7 +25,6 @@ import logging
 import os
 from pathlib import Path
 
-import k2
 import torch
 from icefall.utils import get_executor
 from lhotse import CutSet, NumpyHdf5Writer
@@ -37,6 +37,7 @@ from valle.data import (
     TextTokenizer,
     tokenize_text,
 )
+from valle.utils import SymbolTable
 
 # Torch's multithreaded behavior needs to be disabled or
 # it wastes a lot of CPU and slow things down.
@@ -148,7 +149,7 @@ def main():
             cuts_filename = f"{args.prefix}_cuts_{partition}.{args.suffix}"
             cut_set.to_file(f"{args.output_dir}/{cuts_filename}")
 
-    unique_phonemes = k2.SymbolTable()
+    unique_phonemes = SymbolTable()
     for s in unique_symbols:
         unique_phonemes.add(s)
     logging.info(f"unique phonemes: {unique_symbols}")

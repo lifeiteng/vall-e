@@ -6,8 +6,10 @@ per-file-ignores =
     # line too long
     valle/bin/trainer.py: E501,
     valle/modules/model.py: E501,
+    valle/utils/__init__.py: F401
 
 exclude =
   .git,
-  **/data/**,
+  egs/**/data/**,
   setup.py,
+  valle/utils/symbol_table.py,

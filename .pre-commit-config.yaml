@@ -5,7 +5,8 @@ repos:
       - id: black
         args: [--line-length=80]
         additional_dependencies: ['click==8.0.1']
-        exclude: icefall\/__init__\.py
+        exclude: valle\/__init__\.py
+        exclude: valle\/utils\/symbol_table\.py
 
   - repo: https://github.com/PyCQA/flake8
     rev: 3.9.2
@@ -18,6 +19,7 @@ repos:
     hooks:
       - id: isort
         args: [--profile=black, --line-length=80]
+        exclude: valle\/utils\/symbol_table\.py
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.0.1
