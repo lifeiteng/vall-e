@@ -4,7 +4,7 @@ statistics=true
 max-line-length = 80
 per-file-ignores =
     # line too long
-    valle/bin/train.py: E501,
+    valle/bin/trainer.py: E501,
     valle/modules/model.py: E501,
 
 exclude =

@@ -30,18 +30,16 @@ valle train \
   --num-epochs 20 \
   --start-epoch 1 \
   --exp-dir exp/valle_dev \
-  --max-duration 300
+  --max-duration 400
 
 # For mix precision training:
-
 valle train \
   --world-size 4 \
   --num-epochs 20 \
   --start-epoch 1 \
   --use-fp16 1 \
   --exp-dir exp/valle_dev \
-  --max-duration 550
-
+  --max-duration 400
 """
 
 
@@ -107,6 +105,9 @@ class Scheduler(torch.optim.lr_scheduler._LRScheduler):
     def get_lr(self) -> float:
         lr = calc_lr(self._step_count, self.dim_embed, self.warmup_steps)
         return [lr] * self.num_param_groups
+
+    def set_step(self, step: int):
+        self._step_count = step
 
 
 def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
@@ -211,16 +212,6 @@ def get_parser():
         default=32000,
         help="""Number of steps that affects how rapidly the learning rate
         decreases. We suggest not to change this.""",
-    )
-
-    parser.add_argument(
-        "--simple-loss-scale",
-        type=float,
-        default=0.5,
-        help="To get pruning ranges, we will calculate a simple version"
-        "loss(joiner is just addition), this simple loss also uses for"
-        "training (as a regularization item). We will scale the simple loss"
-        "with this parameter before adding to the final loss.",
     )
 
     parser.add_argument(
@@ -750,19 +741,11 @@ def train_one_epoch(
 def filter_short_and_long_utterances(cuts: CutSet) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
-        #
-        # Caution: There is a reason to select 20.0 here. Please see
-        # ../local/display_manifest_statistics.py
-        #
-        # You should use ../local/display_manifest_statistics.py to get
-        # an utterance duration distribution for your dataset to select
-        # the threshold
         if c.duration < 0.6 or c.duration > 20.0:
             logging.warning(
                 f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             )
             return False
-
         return True
 
     cuts = cuts.filter(remove_short_and_long_utt)
@@ -830,8 +813,11 @@ def run(rank, world_size, args):
     optimizer = torch.optim.AdamW(model.parameters(), lr=params.base_lr)
 
     scheduler = Scheduler(
-        optimizer, dim_embed=1024, warmup_steps=params.warmup_steps
+        optimizer,
+        dim_embed=params.decoder_dim,
+        warmup_steps=params.warmup_steps,
     )
+    scheduler.set_step(params.start_batch or params.batch_idx_train)
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
@@ -878,8 +864,6 @@ def run(rank, world_size, args):
         scaler.load_state_dict(checkpoints["grad_scaler"])
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
-        # TODO: Fix scheduler
-        # scheduler.step_epoch(epoch - 1)
         fix_random_seed(params.seed + epoch - 1)
         train_dl.sampler.set_epoch(epoch - 1)
 
