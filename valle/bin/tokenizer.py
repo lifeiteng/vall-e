@@ -108,11 +108,11 @@ def main():
 
     text_tokenizer = TextTokenizer()
 
-    # TODO: Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
-    num_jobs = min(1, os.cpu_count())
+    # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
+    # by remove encodec weight_norm
+    num_jobs = min(16, os.cpu_count())
 
-    if not os.path.isdir(args.output_dir):
-        os.mkdir(args.output_dir)
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     unique_symbols = set()
     extractor = AudioTokenExtractor(AudioTokenConfig())

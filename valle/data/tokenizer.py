@@ -73,6 +73,36 @@ def tokenize_text(tokenizer: TextTokenizer, text: str):
     return phonemes[0].replace(" ", "_")  # k2symbols
 
 
+def remove_encodec_weight_norm(model):
+    from encodec.modules import SConv1d
+    from encodec.modules.seanet import SConvTranspose1d, SEANetResnetBlock
+    from torch.nn.utils import remove_weight_norm
+
+    encoder = model.encoder.model
+    for key in encoder._modules:
+        if isinstance(encoder._modules[key], SEANetResnetBlock):
+            remove_weight_norm(encoder._modules[key].shortcut.conv.conv)
+            block_modules = encoder._modules[key].block._modules
+            for skey in block_modules:
+                if isinstance(block_modules[skey], SConv1d):
+                    remove_weight_norm(block_modules[skey].conv.conv)
+        elif isinstance(encoder._modules[key], SConv1d):
+            remove_weight_norm(encoder._modules[key].conv.conv)
+
+    decoder = model.decoder.model
+    for key in decoder._modules:
+        if isinstance(decoder._modules[key], SEANetResnetBlock):
+            remove_weight_norm(decoder._modules[key].shortcut.conv.conv)
+            block_modules = decoder._modules[key].block._modules
+            for skey in block_modules:
+                if isinstance(block_modules[skey], SConv1d):
+                    remove_weight_norm(block_modules[skey].conv.conv)
+        elif isinstance(decoder._modules[key], SConvTranspose1d):
+            remove_weight_norm(decoder._modules[key].convtr.convtr)
+        elif isinstance(decoder._modules[key], SConv1d):
+            remove_weight_norm(decoder._modules[key].conv.conv)
+
+
 class AudioTokenizer:
     """EnCodec audio."""
 
@@ -82,9 +112,9 @@ class AudioTokenizer:
         # Instantiate a pretrained EnCodec model
         model = EncodecModel.encodec_model_24khz()
         model.set_target_bandwidth(6.0)
-        for param in model.parameters():
-            param.requires_grad = False
-        self.codec = model.eval()
+        remove_encodec_weight_norm(model)
+
+        self.codec = model
         self.sample_rate = model.sample_rate
         self.channels = model.channels
 
@@ -154,8 +184,9 @@ class AudioTokenExtractor(FeatureExtractor):
                 frame_shift=self.frame_shift,
                 sampling_rate=sampling_rate,
             )
+            assert abs(codes.shape[-1] - expected_num_frames) <= 1
             codes = codes[..., :expected_num_frames]
-        return codes.clone().detach().cpu().squeeze(0).permute(1, 0).numpy()
+        return codes.cpu().squeeze(0).permute(1, 0).numpy()
 
     @property
     def frame_shift(self) -> Seconds:
@@ -163,3 +194,18 @@ class AudioTokenExtractor(FeatureExtractor):
 
     def feature_dim(self, sampling_rate: int) -> int:
         return self.config.num_quantizers
+
+
+if __name__ == "__main__":
+    model = EncodecModel.encodec_model_24khz()
+    model.set_target_bandwidth(6.0)
+
+    samples = torch.from_numpy(np.random.random([4, 1, 1600])).type(
+        torch.float32
+    )
+    codes_raw = model.encode(samples)
+
+    remove_encodec_weight_norm(model)
+    codes_norm = model.encode(samples)
+
+    assert torch.allclose(codes_raw[0][0], codes_norm[0][0])
