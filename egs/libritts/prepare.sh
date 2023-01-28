@@ -16,8 +16,8 @@ stop_stage=3
 
 dl_dir=$PWD/download
 
-# dataset_parts="dev-clean test-clean"  # debug
-dataset_parts="auto"  # all
+# dataset_parts="-p dev-clean -p test-clean"  # debug
+dataset_parts="all"  # all
 
 . shared/parse_options.sh || exit 1
 
@@ -34,15 +34,6 @@ log() {
 
 log "dl_dir: $dl_dir"
 
-if [ "${dataset_parts}" == "auto" ];then
-  dataset_parts_opts="--dataset-parts=auto"
-else
-  dataset_parts_opts=""
-  for part in `echo ${dataset_parts} | cut -d" " -f1-`;do
-    dataset_parts_opts="${dataset_parts_opts} -p ${part}"
-  done
-fi
-
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   log "Stage 0: Download data"
 
@@ -51,9 +42,9 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   #
   #   ln -sfv /path/to/LibriTTS $dl_dir/LibriTTS
   #
-  if [ ! -d $dl_dir/LibriTTS/dev-clean ]; then
+  if [ ! -d $dl_dir/LibriTTS/dev-other ]; then
     # lhotse download libritts $dl_dir
-    lhotse download libritts ${dataset_parts_opts} $dl_dir
+    lhotse download libritts ${dataset_parts} $dl_dir
   fi
 fi
 
@@ -63,7 +54,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
   # to $dl_dir/LibriTTS
   mkdir -p data/manifests
   if [ ! -e data/manifests/.libritts.done ]; then
-    lhotse prepare libritts ${dataset_parts_opts} -j $nj $dl_dir/LibriTTS data/manifests
+    lhotse prepare libritts ${dataset_parts} -j $nj $dl_dir/LibriTTS data/manifests
     touch data/manifests/.libritts.done
   fi
 fi
@@ -83,7 +74,7 @@ fi
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare LibriTTS train/dev/test"
   if [ ! -e data/tokenized/.libritts.train.done ]; then
-    if [ "${dataset_parts}" == "auto" ];then
+    if [ "${dataset_parts}" == "all" ];then
       # train
       lhotse combine \
         data/tokenized/libritts_cuts_train-clean-100.jsonl.gz \

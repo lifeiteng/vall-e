@@ -37,13 +37,27 @@ pip install phonemizer
 
 # lhotse
 # https://github.com/lhotse-speech/lhotse/pull/956
+# https://github.com/lhotse-speech/lhotse/pull/960
+pip uninstall lhotse
+pip uninstall lhotse
 pip install git+https://github.com/lhotse-speech/lhotse
 
-# icefall
+# k2 icefall
+# pip install k2
+git clone https://github.com/k2-fsa/k2.git
+cd k2
+export K2_MAKE_ARGS="-j12"
+export K2_CMAKE_ARGS="-DK2_WITH_CUDA=OFF"
+python setup.py install
+cd -
+
 git clone https://github.com/k2-fsa/icefall
 cd icefall
 pip install -r requirements.txt
 export PYTHONPATH=`pwd`/../icefall:$PYTHONPATH
+echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.zshrc
+echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.bashrc
+cd -
 
 # valle
 git clone https://github.com/lifeiteng/valle.git
