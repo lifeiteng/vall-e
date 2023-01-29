@@ -75,7 +75,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
 from valle.data import TtsDataModule
-from valle.modules import get_valle_model
+from valle.modules import add_model_arguments, get_model
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
 
@@ -119,25 +119,6 @@ def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
             module.batch_count = batch_count
 
 
-def add_model_arguments(parser: argparse.ArgumentParser):
-    parser.add_argument(
-        "--decoder-dim",
-        type=int,
-        default=1024,
-        help="Embedding dimension in the decoder model.",
-    )
-    parser.add_argument(
-        "--nhead",
-        type=int,
-        default=16,
-        help="Number of attention heads in the Decoder layers.",
-    )
-    parser.add_argument(
-        "--num-decoder-layers",
-        type=int,
-        default=12,
-        help="Number of Decoder layers.",
-    )
 
 
 def get_parser():
@@ -789,7 +770,7 @@ def run(rank, world_size, args):
     logging.info(params)
 
     logging.info("About to create model")
-    model = get_valle_model(params)
+    model = get_model(params)
 
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")

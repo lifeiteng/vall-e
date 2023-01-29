@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import argparse
 import random
 from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from icefall.utils import AttributeDict
+from icefall.utils import AttributeDict, make_pad_mask
 
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 
@@ -41,6 +41,12 @@ class VALLF(nn.Module):
         d_model: int,
         nhead: int,
         num_layers: int,
+        decoder_cls: Union[
+            nn.TransformerDecoder, nn.TransformerEncoder
+        ] = nn.TransformerDecoder,
+        decoder_layer_cls: Union[
+            nn.TransformerDecoderLayer, nn.TransformerEncoderLayer
+        ] = nn.TransformerDecoderLayer,
     ):
         """
         Args:
@@ -67,8 +73,8 @@ class VALLF(nn.Module):
 
         self.decoder_blocks = nn.ModuleList(
             [
-                nn.TransformerDecoder(
-                    torch.nn.TransformerDecoderLayer(
+                decoder_cls(
+                    decoder_layer_cls(
                         d_model,
                         nhead,
                         dim_feedforward=d_model * 4,
@@ -228,51 +234,228 @@ class VALLF(nn.Module):
         return (codes, total_loss / (stop_idx + 1.0))
 
 
-def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+class VALLE(VALLF):
+    """It implements https://arxiv.org/abs/2301.02111
+    "Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers"
     """
-    Args:
-      lengths:
-        A 1-D tensor containing sentence lengths.
-      max_len:
-        The length of masks.
-    Returns:
-      Return a 2-D bool tensor, where masked positions
-      are filled with `True` and non-masked positions are
-      filled with `False`.
 
-    >>> lengths = torch.tensor([1, 3, 2, 5])
-    >>> make_pad_mask(lengths)
-    tensor([[False,  True,  True,  True,  True],
-            [False, False, False,  True,  True],
-            [False, False,  True,  True,  True],
-            [False, False, False, False, False]])
-    """
-    assert lengths.ndim == 1, lengths.ndim
-    max_len = max(max_len, lengths.max())
-    n = lengths.size(0)
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        num_layers: int,
+    ):
+        """
+        Args:
+          d_model:
+            The number of expected features in the input (required).
+          nhead:
+            The number of heads in the multiheadattention models (required).
+          num_layers:
+            The number of sub-decoder-layers in the decoder (required).
+        """
+        super(VALLE, self).__init__(
+            d_model,
+            nhead,
+            num_layers,
+            decoder_cls=nn.TransformerEncoder,
+            decoder_layer_cls=nn.TransformerEncoderLayer,
+        )
 
-    expaned_lengths = torch.arange(max_len).expand(n, max_len).to(lengths)
+    def forward(
+        self,
+        x: torch.Tensor,
+        x_lens: torch.Tensor,
+        y: Union[torch.Tensor, None] = None,
+        y_lens: Union[torch.Tensor, None] = None,
+        prompt_text_tokens: Union[torch.Tensor, None] = None,
+        prompt_text_tokens_lens: Union[torch.Tensor, None] = None,
+        prompt_audio_tokens: Union[torch.Tensor, None] = None,
+        prompt_audio_tokens_lens: Union[torch.Tensor, None] = None,
+    ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
+        """
+        Args:
+          x:
+            A 2-D tensor of shape (N, S).
+          x_lens:
+            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
+            before padding.
+          y:
+            A 3-D tensor of shape (N, T, 8).
+          y_lens:
+            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
+            before padding.
+          prompt_*：
+            prompts will be used in Inference.
+        Returns:
+          Return the predicted audio code matrix and cross-entropy loss.
+        """
+        assert x.ndim == 2, x.shape
+        assert x_lens.ndim == 1, x_lens.shape
+        assert y.ndim == 3, y.shape
+        assert y_lens.ndim == 1, y_lens.shape
 
-    return expaned_lengths >= lengths.unsqueeze(1)
+        assert torch.all(x_lens > 0)
+
+        # NOTE: x has been padded in TextTokenCollater
+        x_mask = make_pad_mask(x_lens).to(x.device)
+
+        x = self.text_embedding(x)
+        x = self.text_position(x)
+
+        total_loss = 0.0
+
+        y_mask = make_pad_mask(y_lens).to(y.device)
+        y_mask_int = y_mask.type(torch.int64)
+
+        codes = y.type(torch.int64) * (1 - y_mask_int.unsqueeze(dim=-1))
+
+        xy_padding_mask = torch.concat([x_mask, y_mask], dim=1)
+
+        x_len = x_lens.max()
+        y_len = y_lens.max()
+        x_attn_mask = F.pad(
+            torch.zeros((x_len, x_len), dtype=torch.bool),
+            (0, y_len),
+            value=False,
+        )
+        y_attn_mask = F.pad(
+            torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
+            (x_len, 0),
+            value=True,
+        )
+        xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0).to(
+            y.device
+        )
+
+        # AR Decoder
+        if y is not None:  # Training
+
+            def pad_y_eos(y, y_lens, eos_id):
+                y = F.pad(y, (0, 1)) + eos_id * F.pad(
+                    y_mask_int, (0, 1), value=1
+                )
+                # inputs, targets
+                return y[:, :-1], y[:, 1:]
+
+            y, targets = pad_y_eos(
+                codes[..., 0], y_lens, eos_id=NUM_AUDIO_TOKENS
+            )
+            y_emb = self.audio_embeddings[0](y)
+            y_pos = self.audio_position(y_emb)
+
+            xy_pos = torch.concat([x, y_pos], dim=1)
+
+            xy_dec = self.decoder_blocks[0](
+                xy_pos,
+                mask=xy_attn_mask,
+                src_key_padding_mask=xy_padding_mask,
+                # is_causal=True,
+            )
+            logits = self.predict_layers[0](xy_dec[:, x_len:])
+            logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
+            # loss
+            total_loss = F.cross_entropy(
+                logits, targets.reshape([-1]), reduction="sum"
+            )
+            # samples = [
+            #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
+            # ]
+        else:
+            pass
+
+        stop_idx = self.rng.choices(
+            (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
+        )[0]
+        # Non-AR Decoders
+        # TODO: Adaptive Layer Normalization
+        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+            zip(
+                self.decoder_blocks[1:],
+                self.predict_layers[1:],
+                self.audio_embeddings,
+            )
+        ):
+            xy_dec = decoder_block(
+                xy_pos,
+                src_key_padding_mask=xy_padding_mask,
+                # is_causal=False,
+            )
+            logits = predict_layer(xy_dec[:, x_len:])
+
+            # loss
+            targets = codes[..., i + 1] + NUM_AUDIO_TOKENS * y_mask_int
+            total_loss += F.cross_entropy(
+                logits.permute(0, 2, 1),
+                targets,
+                ignore_index=NUM_AUDIO_TOKENS,
+                reduction="sum",
+            )
+
+            if i + 1 == stop_idx or i == 6:
+                break
+
+            # samples.append(
+            #     torch.multinomial(F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1), num_samples=1)
+            # )
+            # Formula (4) (5)
+            # xy_pos[:, x_len:] = xy_pos[:, x_len:] + embedding_layer(codes[..., i + 1])
+            # xy_pos[:, x_len:] += embedding_layer(codes[..., i + 1])
+            y_pos = y_pos + embedding_layer(codes[..., i + 1])
+            xy_pos = torch.concat([x, y_pos], dim=1)
+
+        return (codes, total_loss / (stop_idx + 1.0))
 
 
-def get_valle_model(params: AttributeDict) -> nn.Module:
-    model = VALLF(params.decoder_dim, params.nhead, params.num_decoder_layers)
+def add_model_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--decoder-dim",
+        type=int,
+        default=1024,
+        help="Embedding dimension in the decoder model.",
+    )
+    parser.add_argument(
+        "--nhead",
+        type=int,
+        default=16,
+        help="Number of attention heads in the Decoder layers.",
+    )
+    parser.add_argument(
+        "--num-decoder-layers",
+        type=int,
+        default=12,
+        help="Number of Decoder layers.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="VALL-E",
+        help="VALL-E or VALL-F.",
+    )
+
+
+def get_model(params: AttributeDict) -> nn.Module:
+    if params.model.lower() in ["vall-f", "vallf"]:
+        model = VALLF(
+            params.decoder_dim, params.nhead, params.num_decoder_layers
+        )
+    else:
+        assert params.model.lower() in ["vall-e", "valle"]
+        model = VALLE(
+            params.decoder_dim, params.nhead, params.num_decoder_layers
+        )
+
     return model
 
 
 if __name__ == "__main__":
+    import numpy as np
+
     params = AttributeDict()
     params.decoder_dim = 64
     params.nhead = 16
     params.num_decoder_layers = 4
-    model = get_valle_model(params)
-    num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of model parameters: {num_param}")
 
-    import numpy as np
-
-    # Training
     x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
     x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
     x_lens[-1] = 8
@@ -281,6 +464,25 @@ if __name__ == "__main__":
     y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
     y_lens[-1] = 16
 
+    # VALL-F
+    params.model = "VALL-F"
+    model = get_model(params)
+    num_param = sum([p.numel() for p in model.parameters()])
+    print(f"Number of {params.model} parameters: {num_param}")
+
+    # Training
+    codes, loss = model(x, x_lens, y, y_lens)
+
+    # Inference
+    # TODO
+
+    # VALL-E
+    params.model = "VALL-E"
+    model = get_model(params)
+    num_param = sum([p.numel() for p in model.parameters()])
+    print(f"Number of {params.model} parameters: {num_param}")
+
+    # Training
     codes, loss = model(x, x_lens, y, y_lens)
 
     # Inference
