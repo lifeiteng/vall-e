@@ -8,7 +8,7 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 ## Demo
 
 * [official demo](https://valle-demo.github.io/)
-* TODO: reproduced results
+* reproduced results: comming soon
 
 ## Broader impacts
 
@@ -20,11 +20,14 @@ We will not provide well-trained models and services.
 
 - [x] Text and Audio Tokenizer
 - [x] Dataset module and loaders
-- [ ] VALL-E modules
+- [x] VALL-F: `seq-to-seq + PrefixLanguageModel`
     - [x] AR Decoder
+    - [x] NonAR Decoder
+- [ ] VALL-E: `PrefixLanguageModel`
+    - [ ] AR Decoder
     - [ ] NonAR Decoder
 - [ ] update REAMDE.zh-CN
-- [ ] Training & Debug
+- [x] Training
 - [ ] Inference: In-Context Learning via Prompting
 
 
@@ -84,16 +87,22 @@ cd egs/libritts
 # Those stages are very time-consuming
 ./prepare.sh
 
-# nano
+# nano: on NV GPU with 12G memory
 python3 bin/trainer.py \
   --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+  --max-duration 40 \
   --exp-dir exp/valle_nano
 
-# same as paper
+# same as paper, but need more memory
 python3 bin/trainer.py \
   --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
   --exp-dir exp/valle
 ```
+#### Troubleshooting
+
+* **SummaryWriter segmentation fault (core dumped)**
+   * LINE `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
+   * FIX  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
 
 
 ## Inference: In-Context Learning via Prompting
@@ -102,7 +111,11 @@ python3 bin/trainer.py \
 
 ## Contributing
 
-* TBD
+* Parallelize bin/tokenizer.py on multi-GPUs
+* Reduce memory usage of **Training**
+* Provide GPU resources (MyEmail: `lifeiteng0422@163.com`)
+* <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
+
 
 ## Citing
 

@@ -2,6 +2,8 @@
 
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
+未更新，移步 Language: [🇨🇺](./README.md)
+
 # 引用
 引用该库
 
