@@ -112,7 +112,8 @@ def main():
     # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
     # by remove encodec weight_norm
     num_jobs = min(8, os.cpu_count())
-    # TODO: Fix CUDA parallel jobs
+
+    # TODO: use multi-gpus witch torch.device("cuda", rank)
     if torch.cuda.is_available():
         num_jobs = 1
 

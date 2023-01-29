@@ -231,7 +231,7 @@ def get_parser():
     parser.add_argument(
         "--save-every-n",
         type=int,
-        default=2000,
+        default=10000,
         help="""Save checkpoint after processing this number of batches"
         periodically. We save checkpoint to exp-dir/ whenever
         params.batch_idx_train % save_every_n == 0. The checkpoint filename
@@ -317,7 +317,7 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 10,  # 10: debug 100+: train
+            "log_interval": 100,  # 10: debug 100+: train
             "reset_interval": 200,
             "valid_interval": 5000,  # For the 100h subset, use 800
             # parameters for TTS
@@ -742,9 +742,9 @@ def filter_short_and_long_utterances(cuts: CutSet) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
         if c.duration < 0.6 or c.duration > 20.0:
-            logging.warning(
-                f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
-            )
+            # logging.warning(
+            #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
+            # )
             return False
         return True
 
