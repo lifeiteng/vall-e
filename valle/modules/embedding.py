@@ -37,6 +37,10 @@ class TokenEmbedding(nn.Module):
     def init_weights(self, gain: float = 1.0):
         torch.nn.init.normal_(self.word_embeddings.weight, std=0.02 * gain)
 
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.word_embeddings.weight
+
     def forward(self, x: torch.Tensor):
         X = self.word_embeddings(x)
         X = self.dropout(X)

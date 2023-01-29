@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import random
 from typing import Tuple, Union
 
 import torch
@@ -23,10 +24,14 @@ from icefall.utils import AttributeDict
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 
 NUM_TEXT_TOKENS = 128
-NUM_AUDIO_TOKENS = 1024 + 1  # EnCodec RVQ bins + 1
+NUM_AUDIO_TOKENS = 1024  # EnCodec RVQ bins
 
 
-class VALLE(nn.Module):
+# NOTE: There are two ways to implement the model
+#       1) [VALL-F] standard TransformerDecoder, use x as memory
+#       2) [VALL-E] modified TransformerDecoder like GPT-x(e.g. causal TransformerEncoder),
+#          use x as the prefix of decoder inputs
+class VALLF(nn.Module):
     """It implements https://arxiv.org/abs/2301.02111
     "Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers"
     """
@@ -47,24 +52,49 @@ class VALLE(nn.Module):
             The number of sub-decoder-layers in the decoder (required).
         """
         super().__init__()
-        self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)
+        self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
         self.text_position = SinePositionalEmbedding(d_model)
 
-        self.audio_embedding = TokenEmbedding(d_model, NUM_AUDIO_TOKENS)
+        self.audio_embeddings = nn.ModuleList(
+            [TokenEmbedding(d_model, NUM_AUDIO_TOKENS + 1)]
+            + [TokenEmbedding(d_model, NUM_AUDIO_TOKENS) for i in range(6)]
+        )  # W_a
         self.audio_position = SinePositionalEmbedding(d_model)
 
-        self.decoder_blocks = nn.TransformerDecoder(
-            torch.nn.TransformerDecoderLayer(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
-                dropout=0.1,
-                batch_first=True,
-                norm_first=True,
-            ),
-            num_layers=num_layers,
+        self.stage_embeddings = nn.ModuleList(
+            [TokenEmbedding(d_model, 8) for k in range(8)]
         )
-        self.predict_layer = nn.Linear(d_model, NUM_AUDIO_TOKENS)
+
+        self.decoder_blocks = nn.ModuleList(
+            [
+                nn.TransformerDecoder(
+                    torch.nn.TransformerDecoderLayer(
+                        d_model,
+                        nhead,
+                        dim_feedforward=d_model * 4,
+                        dropout=0.1,
+                        batch_first=True,
+                        norm_first=True,
+                    ),
+                    num_layers=num_layers,
+                )
+                for i in range(8)
+            ]
+        )
+
+        self.predict_layers = nn.ModuleList(
+            [nn.Linear(d_model, NUM_AUDIO_TOKENS + 1)]
+            + [nn.Linear(d_model, NUM_AUDIO_TOKENS) for i in range(7)]
+        )
+
+        # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
+        self.predict_layers[0].weight = self.audio_embeddings[0].weight
+        # We also share the parameters of the acoustic embedding layer and the output prediction layer,
+        # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
+        for j in range(1, 6):
+            self.predict_layers[j].weight = self.audio_embeddings[j + 1].weight
+
+        self.rng = random.Random(0)
 
     def forward(
         self,
@@ -107,62 +137,95 @@ class VALLE(nn.Module):
         x = self.text_embedding(x)
         x = self.text_position(x)
 
-        # NOTE: There are two ways to implement the model
-        #       1) standard TransformerDecoder, use x as memory
-        #       2) modified TransformerDecoder like GPT-x(e.g. causal TransformerEncoder),
-        #          use x as the prefix of decoder inputs
-        # NOW: we try 1)
-
         total_loss = 0.0
-        codes = y
+
+        y_mask = make_pad_mask(y_lens).to(y.device)
+        y_mask_int = y_mask.type(torch.int64)
+
+        codes = y.type(torch.int64) * (1 - y_mask_int.unsqueeze(dim=-1))
 
         # AR Decoder
         if y is not None:  # Training
 
             def pad_y_eos(y, y_lens, eos_id):
-                y_mask = make_pad_mask(y_lens).to(y.device)
-                y_mask_int = y_mask.type(torch.int64)
-                y = y.type(torch.int64)
-                y = F.pad(y * (1 - y_mask_int), (0, 1)) + eos_id * F.pad(
+                y = F.pad(y, (0, 1)) + eos_id * F.pad(
                     y_mask_int, (0, 1), value=1
                 )
-                del y_mask_int
-                # inputs, inputs_mask, targets
-                return y[:, :-1], y_mask, y[:, 1:]
+                # inputs, targets
+                return y[:, :-1], y[:, 1:]
 
-            y, y_mask, targets = pad_y_eos(
-                y[..., 0], y_lens, eos_id=NUM_AUDIO_TOKENS - 1
+            y, targets = pad_y_eos(
+                codes[..., 0], y_lens, eos_id=NUM_AUDIO_TOKENS
             )
-            y = self.audio_embedding(y)
-            y = self.audio_position(y)
+            y_emb = self.audio_embeddings[0](y)
+            y_pos = self.audio_position(y_emb)
 
             y_len = y_lens.max()
             tgt_mask = torch.triu(
                 torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
                 diagonal=1,
             )
-            y = self.decoder_blocks(
-                y,
+            y_dec = self.decoder_blocks[0](
+                y_pos,
                 x,
                 tgt_mask=tgt_mask,
                 tgt_key_padding_mask=y_mask,
                 memory_mask=None,
                 memory_key_padding_mask=x_mask,
             )
-            logits = self.predict_layer(y)
-            logits = logits.reshape([-1, NUM_AUDIO_TOKENS])
-            codes = torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
-
+            logits = self.predict_layers[0](y_dec)
+            logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
             # loss
             total_loss = F.cross_entropy(
                 logits, targets.reshape([-1]), reduction="sum"
             )
+            # samples = [
+            #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
+            # ]
         else:
             pass
 
+        stop_idx = self.rng.choices(
+            (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
+        )[0]
         # Non-AR Decoders
+        # TODO: Adaptive Layer Normalization
+        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+            zip(
+                self.decoder_blocks[1:],
+                self.predict_layers[1:],
+                self.audio_embeddings,
+            )
+        ):
+            y_dec = decoder_block(
+                y_pos,
+                x,
+                tgt_mask=None,
+                tgt_key_padding_mask=y_mask,
+                memory_mask=None,
+                memory_key_padding_mask=x_mask,
+            )
+            logits = predict_layer(y_dec)
 
-        return (codes, total_loss)
+            # loss
+            targets = codes[..., i + 1] + NUM_AUDIO_TOKENS * y_mask_int
+            total_loss += F.cross_entropy(
+                logits.permute(0, 2, 1),
+                targets,
+                ignore_index=NUM_AUDIO_TOKENS,
+                reduction="sum",
+            )
+
+            if i + 1 == stop_idx or i == 6:
+                break
+
+            # samples.append(
+            #     torch.multinomial(F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1), num_samples=1)
+            # )
+            # Formula (4) (5)
+            y_pos = y_pos + embedding_layer(codes[..., i + 1])
+
+        return (codes, total_loss / (stop_idx + 1.0))
 
 
 def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
@@ -194,7 +257,7 @@ def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
 
 
 def get_valle_model(params: AttributeDict) -> nn.Module:
-    model = VALLE(params.decoder_dim, params.nhead, params.num_decoder_layers)
+    model = VALLF(params.decoder_dim, params.nhead, params.num_decoder_layers)
     return model
 
 
