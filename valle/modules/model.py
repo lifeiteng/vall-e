@@ -427,7 +427,7 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Number of Decoder layers.",
     )
     parser.add_argument(
-        "--model",
+        "--model-name",
         type=str,
         default="VALL-E",
         help="VALL-E or VALL-F.",
@@ -435,12 +435,12 @@ def add_model_arguments(parser: argparse.ArgumentParser):
 
 
 def get_model(params: AttributeDict) -> nn.Module:
-    if params.model.lower() in ["vall-f", "vallf"]:
+    if params.model_name.lower() in ["vall-f", "vallf"]:
         model = VALLF(
             params.decoder_dim, params.nhead, params.num_decoder_layers
         )
     else:
-        assert params.model.lower() in ["vall-e", "valle"]
+        assert params.model_name.lower() in ["vall-e", "valle"]
         model = VALLE(
             params.decoder_dim, params.nhead, params.num_decoder_layers
         )

@@ -27,7 +27,7 @@ We will not provide well-trained models and services.
 - [x] VALL-E: `PrefixLanguageModel`
     - [x] AR Decoder
     - [x] NonAR Decoder
-- [ ] update REAMDE.zh-CN
+- [ ] update README.zh-CN
 - [x] Training
 - [ ] Inference: In-Context Learning via Prompting
 
@@ -91,12 +91,12 @@ cd egs/libritts
 # nano: on NV GPU with 12G memory
 # python3 bin/trainer.py \
 #     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-#     --max-duration 40 --model vallf \
+#     --max-duration 40 --model-name vallf \
 #     --exp-dir exp/vallf_nano_full
 
 python3 bin/trainer.py \
     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-    --max-duration 40 --model valle \
+    --max-duration 40 --model-name valle \
     --exp-dir exp/valle_nano_full
 
 # same as paper, but need more memory
