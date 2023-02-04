@@ -188,7 +188,7 @@ class VALLF(nn.Module):
             zip(
                 self.decoder_blocks[1:],
                 self.predict_layers[1:],
-                self.audio_embeddings,
+                self.audio_embeddings[1:] + [None],
             )
         ):
             y_dec = decoder_block(
@@ -289,7 +289,7 @@ class VALLF(nn.Module):
             zip(
                 self.decoder_blocks[1:],
                 self.predict_layers[1:],
-                self.audio_embeddings,
+                self.audio_embeddings[1:] + [None],
             )
         ):
             y_dec = decoder_block(
@@ -301,11 +301,7 @@ class VALLF(nn.Module):
             )
             logits = predict_layer(y_dec[:, prompts_len:])
 
-            samples = torch.multinomial(
-                F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1),
-                num_samples=1,
-            )
-            samples = samples.transpose(1, 0)
+            samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
@@ -442,7 +438,7 @@ class VALLE(VALLF):
             zip(
                 self.decoder_blocks[1:],
                 self.predict_layers[1:],
-                self.audio_embeddings,
+                self.audio_embeddings[1:] + [None],
             )
         ):
             xy_dec = decoder_block(
@@ -510,6 +506,7 @@ class VALLE(VALLF):
         # AR Decoder
         # TODO: Managing decoder steps avoid repetitive computation
         y = prompts[..., 0]
+
         while True:
             y_emb = self.audio_embeddings[0](y)
             y_pos = self.audio_position(y_emb)
@@ -525,12 +522,17 @@ class VALLE(VALLF):
             )
             if (
                 samples[0, 0] == NUM_AUDIO_TOKENS
-                or (y.shape[1] - prompts_len) > x_lens.max() * 20
+                or (y.shape[1] - prompts.shape[1]) > x_lens.max() * 20
             ):
-                print(f"EOS [{prompts_len} -> {y.shape[1]}]")
+                print(f"EOS [{prompts.shape[1]} -> {y.shape[1]}]")
                 break
 
             y = torch.concat([y, samples], dim=1)
+
+        for k in range(1, 7):
+            xy_pos[:, x_lens.max() : prompts_len] += self.audio_embeddings[k](
+                prompts[..., k]
+            )
 
         codes = [y[:, prompts.shape[1] :]]
         # Non-AR Decoders
@@ -539,23 +541,19 @@ class VALLE(VALLF):
             zip(
                 self.decoder_blocks[1:],
                 self.predict_layers[1:],
-                self.audio_embeddings,
+                self.audio_embeddings[1:] + [None],
             )
         ):
             xy_dec = decoder_block(xy_pos)
             logits = predict_layer(xy_dec[:, prompts_len:])
 
-            samples = torch.multinomial(
-                F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1),
-                num_samples=1,
-            )
-            samples = samples.transpose(1, 0)
+            samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
-                xy_pos[:, x_lens.max() : prompts_len] += embedding_layer(
-                    prompts[..., i + 1]
-                )
+                # xy_pos[:, x_lens.max() : prompts_len] += embedding_layer(
+                #     prompts[..., i + 1]
+                # )
                 xy_pos[:, prompts_len:] += embedding_layer(samples)
 
         assert len(codes) == 8
@@ -620,27 +618,27 @@ if __name__ == "__main__":
     y_lens[-1] = 16
 
     # VALL-F
-    params.model = "VALL-F"
+    params.model_name = "VALL-F"
     model = get_model(params)
     num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of {params.model} parameters: {num_param}")
+    print(f"Number of {params.model_name} parameters: {num_param}")
 
     # Training
     codes, loss = model(x, x_lens, y, y_lens)
 
     # Inference
-    # TODO
+    codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
 
     # VALL-E
-    params.model = "VALL-E"
+    params.model_name = "VALL-E"
     model = get_model(params)
     num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of {params.model} parameters: {num_param}")
+    print(f"Number of {params.model_name} parameters: {num_param}")
 
     # Training
     codes, loss = model(x, x_lens, y, y_lens)
 
     # Inference
-    # TODO
+    codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
 
     print("model test PASS!")
