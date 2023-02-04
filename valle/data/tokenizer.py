@@ -143,10 +143,7 @@ def tokenize_audio(tokenizer: AudioTokenizer, audio_path: str):
     # Extract discrete codes from EnCodec
     with torch.no_grad():
         encoded_frames = tokenizer.encode(wav)
-    codes = torch.statck(
-        [encoded[0] for encoded in encoded_frames], dim=0
-    )  # [B, T, n_q]
-    return codes
+    return encoded_frames
 
 
 @dataclass
