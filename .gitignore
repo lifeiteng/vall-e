@@ -9,3 +9,4 @@ log
 .vscode
 egs/*/data
 valle/version.py
+infer/

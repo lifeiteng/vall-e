@@ -7,15 +7,18 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 ## Demo
 
 * [official demo](https://valle-demo.github.io/)
-* reproduced results: comming soon
+* reproduced results: Inference
+![model](./docs/images/infer.png)
 
 ## Broader impacts
 
 > Since VALL-E could synthesize speech that maintains speaker identity, it may carry potential risks in misuse of the model, such as spoofing voice identification or impersonating a specific speaker.
 
-We will not provide well-trained models and services.
+To avoid abuse, Well-trained models and services will not be provided.
 
 ## Progress
+
+**model trained with nano config(about 100x smaller than the paper config) have been able to synthesize human-like speech.**
 
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
@@ -27,9 +30,9 @@ We will not provide well-trained models and services.
 - [x] VALL-E: `PrefixLanguageModel`
     - [x] AR Decoder
     - [x] NonAR Decoder
-- [ ] update README.zh-CN
+- [x] update README.zh-CN
 - [x] Training
-- [ ] Inference: In-Context Learning via Prompting
+- [x] Inference: In-Context Learning via Prompting
 
 
 ## Installation
@@ -112,8 +115,24 @@ python3 bin/trainer.py \
 
 
 ## Inference: In-Context Learning via Prompting
+```
+python3 bin/infer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+    --text-prompts "Go to her." \
+    --audio-prompts ./prompts/61_70970_000007_000001.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --output-dir infer/demo_valle_epoch20_P0 \
+    --checkpoint exp/valle_nano_v2/epoch-20.pt
 
-* TBD
+python3 bin/infer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+    --text-prompts "The two parties, the sheep and the wolves, met each other. Rodolfo and his companions, with their faces muffled in their cloaks, stared rudely and insolently at the mother, the daughter, and the servant maid." \
+    --audio-prompts ./prompts/5639_40744_000000_000002.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --output-dir infer/demo_valle_epoch20_P1 \
+    --checkpoint exp/valle_nano_v2/epoch-20.pt
+```
+
 
 ## Contributing
 
