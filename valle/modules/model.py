@@ -246,11 +246,10 @@ class VALLF(nn.Module):
 
         assert torch.all(x_lens > 0)
 
-        # NOTE: x has been padded in TextTokenCollater
-        x_mask = make_pad_mask(x_lens).to(x.device)
-
         x = self.text_embedding(x)
         x = self.text_position(x)
+        # NOTE: x has been padded in TextTokenCollater
+        x_mask = make_pad_mask(x_lens).to(x.device)
 
         prompts = y
         prompts_len = y.shape[1]
@@ -262,9 +261,15 @@ class VALLF(nn.Module):
             y_emb = self.audio_embeddings[0](y)
             y_pos = self.audio_position(y_emb)
 
+            tgt_mask = torch.triu(
+                torch.ones(y.shape[1], y.shape[1], device=y.device, dtype=torch.bool),
+                diagonal=1,
+            )
+
             y_dec = self.decoder_blocks[0](
                 y_pos,
                 x,
+                tgt_mask=tgt_mask,
                 memory_mask=None,
                 memory_key_padding_mask=x_mask,
             )
@@ -507,13 +512,32 @@ class VALLE(VALLF):
         # TODO: Managing decoder steps avoid repetitive computation
         y = prompts[..., 0]
 
+        x_len = x_lens.max()
+        x_attn_mask = torch.zeros((x_len, x_len), dtype=torch.bool)
+
         while True:
             y_emb = self.audio_embeddings[0](y)
             y_pos = self.audio_position(y_emb)
-
             xy_pos = torch.concat([x, y_pos], dim=1)
+
+            y_len = y.shape[1]
+            x_attn_mask_pad = F.pad(
+                x_attn_mask,
+                (0, y_len),
+                value=False,
+            )
+            y_attn_mask = F.pad(
+                torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
+                (x_len, 0),
+                value=True,
+            )
+            xy_attn_mask = torch.concat([x_attn_mask_pad, y_attn_mask], dim=0).to(
+                y.device
+            )
+
             xy_dec = self.decoder_blocks[0](
                 xy_pos,
+                mask=xy_attn_mask,
             )
             logits = self.predict_layers[0](xy_dec[:, -1:])
             samples = torch.multinomial(
@@ -529,10 +553,10 @@ class VALLE(VALLF):
 
             y = torch.concat([y, samples], dim=1)
 
-        for k in range(1, 7):
-            xy_pos[:, x_lens.max() : prompts_len] += self.audio_embeddings[k](
-                prompts[..., k]
-            )
+        # for k in range(1, 7):
+        #     xy_pos[:, x_lens.max() : prompts_len] += self.audio_embeddings[k](
+        #         prompts[..., k]
+        #     )
 
         codes = [y[:, prompts.shape[1] :]]
         # Non-AR Decoders
@@ -551,9 +575,9 @@ class VALLE(VALLF):
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
-                # xy_pos[:, x_lens.max() : prompts_len] += embedding_layer(
-                #     prompts[..., i + 1]
-                # )
+                xy_pos[:, x_lens.max() : prompts_len] += embedding_layer(
+                    prompts[..., i + 1]
+                )
                 xy_pos[:, prompts_len:] += embedding_layer(samples)
 
         assert len(codes) == 8

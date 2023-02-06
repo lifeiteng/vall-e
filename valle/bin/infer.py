@@ -136,8 +136,8 @@ def main():
             [tokenize_text(text_tokenizer, text=text)]
         )
 
-        text_tokens = torch.concat([text_prompts[:, :-1], text_tokens], dim=-1)
-        text_tokens_lens += text_prompts_lens - 1
+        text_tokens = torch.concat([text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1)
+        text_tokens_lens += text_prompts_lens - 2
 
         # synthesis
         encoded_frames = model.inference(
