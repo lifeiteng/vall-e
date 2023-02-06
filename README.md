@@ -4,11 +4,26 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 
 ![model](./docs/images/Overview.jpg)
 
+## Inference: In-Context Learning via Prompting
+
+**model trained with nano config(about 100x smaller than the paper config) can synthesize human-like speech.**
+
+```
+cd egs/libritts
+
+python3 bin/infer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+    --text-prompts "Go to her." \
+    --audio-prompts ./prompts/61_70970_000007_000001.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --output-dir infer/demo_valle_epoch20 \
+    --checkpoint exp/valle_nano_v2/epoch-20.pt
+```
+
+![model](./docs/images/infer.png)
 ## Demo
 
 * [official demo](https://valle-demo.github.io/)
-* reproduced results: Inference
-![model](./docs/images/infer.png)
 
 ## Broader impacts
 
@@ -17,8 +32,6 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 To avoid abuse, Well-trained models and services will not be provided.
 
 ## Progress
-
-**model trained with nano config(about 100x smaller than the paper config) have been able to synthesize human-like speech.**
 
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
@@ -112,27 +125,6 @@ python3 bin/trainer.py \
 * **SummaryWriter segmentation fault (core dumped)**
    * LINE `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
    * FIX  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
-
-
-## Inference: In-Context Learning via Prompting
-```
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-    --text-prompts "Go to her." \
-    --audio-prompts ./prompts/61_70970_000007_000001.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_valle_epoch20_P0 \
-    --checkpoint exp/valle_nano_v2/epoch-20.pt
-
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-    --text-prompts "The two parties, the sheep and the wolves, met each other. Rodolfo and his companions, with their faces muffled in their cloaks, stared rudely and insolently at the mother, the daughter, and the servant maid." \
-    --audio-prompts ./prompts/5639_40744_000000_000002.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_valle_epoch20_P1 \
-    --checkpoint exp/valle_nano_v2/epoch-20.pt
-```
-
 
 ## Contributing
 

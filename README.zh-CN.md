@@ -1,21 +1,35 @@
 非官方 VALL-E（[Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)）开源 PyTorch 实现。
 
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
+
+## Inference: In-Context Learning via Prompting
+
+**使用 nano 配置（比论文配置小 100 倍左右）训练的模型，已经能够合成类人的语音。**
+
+```
+cd egs/libritts
+
+python3 bin/infer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+    --text-prompts "Go to her." \
+    --audio-prompts ./prompts/61_70970_000007_000001.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --output-dir infer/demo_valle_epoch20 \
+    --checkpoint exp/valle_nano_v2/epoch-20.pt
+```
+
+![model](./docs/images/infer.png)
 ## Demo
 
 * [官方 demo](https://valle-demo.github.io/)
-* 复现结果: 参见 ##Inference 部分
-![model](./docs/images/infer.png)
 
 ## 广泛影响
 
 > Since VALL-E could synthesize speech that maintains speaker identity, it may carry potential risks in misuse of the model, such as spoofing voice identification or impersonating a specific speaker.
 
-为避免滥用，训练好的模型和服务不会被提供。
+为避免滥用，良好的训练模型和服务不会被提供。
 
 ## 进展
-
-**使用 nano 配置（比论文配置小 100 倍左右）训练的模型，已经能够合成类人的语音。**
 
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
@@ -99,27 +113,6 @@ python3 bin/trainer.py \
 * **SummaryWriter segmentation fault (core dumped)**
    * LINE `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
    * FIX  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
-
-
-## Inference: In-Context Learning via Prompting
-```
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-    --text-prompts "Go to her." \
-    --audio-prompts ./prompts/61_70970_000007_000001.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_valle_epoch20_P0 \
-    --checkpoint exp/valle_nano_v2/epoch-20.pt
-
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-    --text-prompts "The two parties, the sheep and the wolves, met each other. Rodolfo and his companions, with their faces muffled in their cloaks, stared rudely and insolently at the mother, the daughter, and the servant maid." \
-    --audio-prompts ./prompts/5639_40744_000000_000002.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_valle_epoch20_P1 \
-    --checkpoint exp/valle_nano_v2/epoch-20.pt
-```
-
 
 ## Contributing
 
