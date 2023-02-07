@@ -19,8 +19,12 @@ python3 bin/infer.py \
     --output-dir infer/demo_valle_epoch20 \
     --checkpoint exp/valle_nano_v2/epoch-20.pt
 ```
+###### VALL-E nano config epoch-20
+<img src="./docs/images/valle.png" width="500" height="400">
 
-![model](./docs/images/infer.png)
+###### VALL-F nano config epoch-10
+<img src="./docs/images/vallf.png" width="500" height="400">
+
 ## Demo
 
 * [official demo](https://valle-demo.github.io/)
