@@ -120,8 +120,8 @@ python3 bin/trainer.py \
 
 ## Contributing
 
+* Multi-GPU Training
 * Parallelize bin/tokenizer.py on multi-GPUs
-* Reduce memory usage of **Training**
 * Provide GPU resources (MyEmail: `lifeiteng0422@163.com`)
 * <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
