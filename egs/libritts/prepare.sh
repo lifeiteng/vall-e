@@ -20,7 +20,7 @@ stop_stage=3
 dl_dir=$PWD/download
 
 # dataset_parts="-p dev-clean -p test-clean"  # debug
-dataset_parts="all"  # all
+dataset_parts="--dataset-parts all"  # all
 
 . shared/parse_options.sh || exit 1
 
@@ -77,7 +77,7 @@ fi
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare LibriTTS train/dev/test"
   if [ ! -e data/tokenized/.libritts.train.done ]; then
-    if [ "${dataset_parts}" == "all" ];then
+    if [ "${dataset_parts}" == "--dataset-parts all" ];then
       # train
       lhotse combine \
         data/tokenized/libritts_cuts_train-clean-100.jsonl.gz \
