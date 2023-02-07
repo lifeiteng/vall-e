@@ -25,21 +25,18 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3"
 cd egs/libritts
 ./prepare.sh
 
-./bin/trainer \
-  --world-size 4 \
-  --num-epochs 20 \
-  --start-epoch 1 \
-  --exp-dir exp/valle_dev \
-  --max-duration 400
+# nano config
+python3 bin/trainer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+    --max-duration 40 --model-name valle \
+    --exp-dir exp/valle_nano
 
 # For mix precision training:
-./bin/trainer \
-  --world-size 4 \
-  --num-epochs 20 \
-  --start-epoch 1 \
-  --use-fp16 1 \
-  --exp-dir exp/valle_dev \
-  --max-duration 400
+python3 bin/trainer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+    --max-duration 40 --model-name valle \
+    --exp-dir exp/valle_nano
+    --use-fp16 1 \
 """
 
 

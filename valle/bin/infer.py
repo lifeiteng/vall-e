@@ -17,7 +17,11 @@ Phonemize Text and EnCodec Audio.
 
 Usage example:
     python3 bin/infer.py \
-        --src_dir ./data/manifests --output_dir ./data/tokenized
+        --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
+        --text-prompts "Go to her." \
+        --audio-prompts ./prompts/61_70970_000007_000001.wav \
+        --output-dir infer/demo_valle_epoch20 \
+        --checkpoint exp/valle_nano_v2/epoch-20.pt
 
 """
 import argparse
@@ -103,6 +107,9 @@ def main():
     if args.checkpoint.is_file():
         checkpoint = torch.load(args.checkpoint, map_location=device)
         missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=True)
+        assert not missing_keys
+        # from icefall.checkpoint import save_checkpoint
+        # save_checkpoint(f"{args.checkpoint}", model=model)
 
     model.to(device)
     model.eval()

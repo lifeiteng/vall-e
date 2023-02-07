@@ -97,7 +97,7 @@ def main():
             "train-other-500",
         )
     else:
-        dataset_parts = args.dataset_parts.replace("-p", "").split(" ")
+        dataset_parts = args.dataset_parts.replace("--dataset-parts", "").replace("-p", "").split(" ")
 
     manifests = read_manifests_if_cached(
         dataset_parts=dataset_parts,
