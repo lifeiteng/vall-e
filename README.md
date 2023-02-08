@@ -12,6 +12,8 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 cd egs/libritts
 
 # VALL-E
+# nano config is too small, so the AR-Decoder may not work well.
+# re-run to get new(diverse) result.
 python3 bin/infer.py \
     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
     --text-prompts "Go to her." \
