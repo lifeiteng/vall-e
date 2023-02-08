@@ -86,7 +86,9 @@ def get_args():
 
 def main():
     args = get_args()
-    if args.dataset_parts == "all":
+
+    dataset_parts = args.dataset_parts.replace("--dataset-parts", "").strip()
+    if dataset_parts == "all":
         dataset_parts = (
             "dev-clean",
             "dev-other",
@@ -97,7 +99,7 @@ def main():
             "train-other-500",
         )
     else:
-        dataset_parts = args.dataset_parts.replace("--dataset-parts", "").replace("-p", "").split(" ")
+        dataset_parts = dataset_parts.replace("-p", "").split(" ")
 
     manifests = read_manifests_if_cached(
         dataset_parts=dataset_parts,
@@ -105,7 +107,6 @@ def main():
         prefix=args.prefix,
         suffix=args.suffix,
     )
-    assert len(manifests) == len(dataset_parts)
 
     text_tokenizer = TextTokenizer()
 
