@@ -9,6 +9,7 @@
 ```
 cd egs/libritts
 
+# VALL-E
 python3 bin/infer.py \
     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
     --text-prompts "Go to her." \
@@ -16,6 +17,15 @@ python3 bin/infer.py \
     --text "To get up and running quickly just follow the steps below." \
     --output-dir infer/demo_valle_epoch20 \
     --checkpoint exp/valle_nano_v2/epoch-20.pt
+
+# VALL-F
+python3 bin/infer.py \
+    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name vallf \
+    --text-prompts "Go to her." \
+    --audio-prompts ./prompts/61_70970_000007_000001.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --output-dir infer/demo_vallf_epoch20 \
+    --checkpoint exp/vallf_nano_v2/epoch-20.pt
 ```
 ###### VALL-E nano config epoch-20
 <img src="./docs/images/valle.png" width="500" height="400">
@@ -90,28 +100,7 @@ pip install -e .
 ```
 
 ## 训练
-```
-cd egs/libritts
-
-# Those stages are very time-consuming
-./prepare.sh
-
-# nano: on NV GPU with 12G memory
-# python3 bin/trainer.py \
-#     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-#     --max-duration 40 --model-name vallf \
-#     --exp-dir exp/vallf_nano_full
-
-python3 bin/trainer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-    --max-duration 40 --model-name valle \
-    --exp-dir exp/valle_nano_full
-
-# same as paper, but need more memory
-python3 bin/trainer.py \
-  --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
-  --exp-dir exp/valle
-```
+* [egs/libritts/README.md](egs/libritts/README.md)
 #### Troubleshooting
 
 * **SummaryWriter segmentation fault (core dumped)**
