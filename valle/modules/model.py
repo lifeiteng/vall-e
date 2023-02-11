@@ -664,6 +664,7 @@ if __name__ == "__main__":
     codes, loss = model(x, x_lens, y, y_lens)
 
     # Inference
+    model.eval()
     codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
 
     # VALL-E
@@ -676,6 +677,7 @@ if __name__ == "__main__":
     codes, loss = model(x, x_lens, y, y_lens)
 
     # Inference
+    model.eval()
     codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
 
     print("model test PASS!")

@@ -12,6 +12,7 @@ class AdaptiveLayerNorm(nn.Module):
         self.project_layer = nn.Linear(d_model, 2 * d_model)
         self.norm = norm
         self.d_model = d_model
+        self.eps = self.norm.eps
 
     def forward(self, input: Tensor, embedding: Tensor = None) -> Tensor:
         if isinstance(input, tuple):
@@ -36,6 +37,8 @@ class TransformerEncoderLayer(nn.TransformerEncoderLayer):
         super(TransformerEncoderLayer, self).__init__(d_model, *args, **kwargs)
         self.norm1 = AdaptiveLayerNorm(d_model, self.norm1)
         self.norm2 = AdaptiveLayerNorm(d_model, self.norm2)
+        # make why_not_sparsity_fast_path != ""
+        self.norm1.eps += self.norm2.eps * 1.0001
 
     def forward(
         self,
