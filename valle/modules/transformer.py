@@ -13,16 +13,22 @@ class AdaptiveLayerNorm(nn.Module):
         self.norm = norm
         self.d_model = d_model
 
-    def forward(self, input: Tensor, embedding: Tensor) -> Tensor:
+    def forward(self, input: Tensor, embedding: Tensor = None) -> Tensor:
+        if isinstance(input, tuple):
+            input, embedding = input
+            weight, bias = torch.split(
+                self.project_layer(embedding),
+                split_size_or_sections=self.d_model,
+                dim=-1,
+            )
+            return (weight * self.norm(input) + bias, embedding)
+
         weight, bias = torch.split(
             self.project_layer(embedding),
             split_size_or_sections=self.d_model,
             dim=-1,
         )
         return weight * self.norm(input) + bias
-
-
-# /stage_embedding: the stage embedding used in Adaptive Layer Normalization (required).
 
 
 class TransformerEncoderLayer(nn.TransformerEncoderLayer):

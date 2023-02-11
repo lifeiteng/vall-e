@@ -23,6 +23,7 @@ from icefall.utils import AttributeDict, make_pad_mask
 
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 from valle.modules.transformer import (
+    AdaptiveLayerNorm,
     TransformerDecoderLayer,
     TransformerEncoderLayer,
 )
@@ -73,6 +74,12 @@ class VALLF(nn.Module):
 
         self.stage_embeddings = TokenEmbedding(d_model, 8)
 
+        norm_first = False
+        final_norm = (
+            AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
+            if norm_first
+            else None
+        )
         self.decoder_blocks = nn.ModuleList(
             [
                 decoder_cls(
@@ -82,9 +89,10 @@ class VALLF(nn.Module):
                         dim_feedforward=d_model * 4,
                         dropout=0.1,
                         batch_first=True,
-                        norm_first=True,
+                        norm_first=norm_first,
                     ),
                     num_layers=num_layers,
+                    norm=final_norm,
                 )
                 for i in range(2)
             ]
@@ -187,8 +195,6 @@ class VALLF(nn.Module):
         )[0]
         # Non-AR Decoders
         nar_decoder_block = self.decoder_blocks[1]
-        # TODO: Adaptive Layer Normalization
-
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
@@ -296,7 +302,6 @@ class VALLF(nn.Module):
         codes = [y[:, prompts_len:]]
         # Non-AR Decoders
         nar_decoder_block = self.decoder_blocks[1]
-        # TODO: Adaptive Layer Normalization
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
@@ -444,15 +449,14 @@ class VALLE(VALLF):
             (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
         )[0]
         # Non-AR Decoders
-        decoder_block = self.decoder_blocks[1]
-        # TODO: Adaptive Layer Normalization
+        nar_decoder_block = self.decoder_blocks[1]
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            xy_dec, _ = decoder_block(
+            xy_dec, _ = nar_decoder_block(
                 (xy_pos, self.stage_embeddings.embedding(i + 1)),
                 src_key_padding_mask=xy_padding_mask,
                 # is_causal=False,
@@ -568,15 +572,14 @@ class VALLE(VALLF):
 
         codes = [y[:, prompts.shape[1] :]]
         # Non-AR Decoders
-        decoder_block = self.decoder_blocks[1]
-        # TODO: Adaptive Layer Normalization
+        nar_decoder_block = self.decoder_blocks[1]
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            xy_dec, _ = decoder_block(
+            xy_dec, _ = nar_decoder_block(
                 (xy_pos, self.stage_embeddings.embedding(i + 1))
             )
             logits = predict_layer(xy_dec[:, prompts_len:])
