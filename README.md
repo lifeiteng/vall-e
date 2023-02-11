@@ -69,6 +69,9 @@ To avoid abuse, Well-trained models and services will not be provided.
 To get up and running quickly just follow the steps below:
 
 ```
+# PyTorch
+pip3 install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+
 # phonemizer
 apt-get install espeak-ng
 ## OSX: brew install espeak

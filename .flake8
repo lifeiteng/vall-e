@@ -10,8 +10,9 @@ per-file-ignores =
     valle/utils/__init__.py: F401,
     valle/__init__.py: F401,
     valle/modules/__init__.py: F401,
+    valle/modules/embedding.py: E203,
     valle/bin/tokenizer.py: E501,
-    valle/modules/decoder.py: E501,
+    valle/modules/transformer.py: E501,
 
 exclude =
   .git,

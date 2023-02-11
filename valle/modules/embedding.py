@@ -41,6 +41,9 @@ class TokenEmbedding(nn.Module):
     def weight(self) -> torch.Tensor:
         return self.word_embeddings.weight
 
+    def embedding(self, index: int) -> torch.Tensor:
+        return self.word_embeddings.weight[index : index + 1]
+
     def forward(self, x: torch.Tensor):
         X = self.word_embeddings(x)
         X = self.dropout(X)

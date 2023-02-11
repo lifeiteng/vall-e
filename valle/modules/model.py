@@ -22,6 +22,10 @@ import torch.nn.functional as F
 from icefall.utils import AttributeDict, make_pad_mask
 
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
+from valle.modules.transformer import (
+    TransformerDecoderLayer,
+    TransformerEncoderLayer,
+)
 
 NUM_TEXT_TOKENS = 128
 NUM_AUDIO_TOKENS = 1024  # EnCodec RVQ bins
@@ -45,8 +49,8 @@ class VALLF(nn.Module):
             nn.TransformerDecoder, nn.TransformerEncoder
         ] = nn.TransformerDecoder,
         decoder_layer_cls: Union[
-            nn.TransformerDecoderLayer, nn.TransformerEncoderLayer
-        ] = nn.TransformerDecoderLayer,
+            TransformerDecoderLayer, TransformerEncoderLayer
+        ] = TransformerDecoderLayer,
     ):
         """
         Args:
@@ -67,9 +71,7 @@ class VALLF(nn.Module):
         )  # W_a
         self.audio_position = SinePositionalEmbedding(d_model)
 
-        self.stage_embeddings = nn.ModuleList(
-            [TokenEmbedding(d_model, 8) for k in range(8)]
-        )
+        self.stage_embeddings = TokenEmbedding(d_model, 8)
 
         self.decoder_blocks = nn.ModuleList(
             [
@@ -84,7 +86,7 @@ class VALLF(nn.Module):
                     ),
                     num_layers=num_layers,
                 )
-                for i in range(8)
+                for i in range(2)
             ]
         )
 
@@ -146,6 +148,7 @@ class VALLF(nn.Module):
 
         # Training
         # AR Decoder
+        ar_decoder_block = self.decoder_blocks[0]
 
         def pad_y_eos(y, y_lens, eos_id):
             y = F.pad(y, (0, 1)) + eos_id * F.pad(y_mask_int, (0, 1), value=1)
@@ -161,8 +164,8 @@ class VALLF(nn.Module):
             torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
             diagonal=1,
         )
-        y_dec = self.decoder_blocks[0](
-            y_pos,
+        y_dec, _ = ar_decoder_block(
+            (y_pos, self.stage_embeddings.embedding(0)),
             x,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=y_mask,
@@ -183,16 +186,17 @@ class VALLF(nn.Module):
             (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
         )[0]
         # Non-AR Decoders
+        nar_decoder_block = self.decoder_blocks[1]
         # TODO: Adaptive Layer Normalization
-        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+
+        for i, (predict_layer, embedding_layer) in enumerate(
             zip(
-                self.decoder_blocks[1:],
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            y_dec = decoder_block(
-                y_pos,
+            y_dec, _ = nar_decoder_block(
+                (y_pos, self.stage_embeddings.embedding(i + 1)),
                 x,
                 tgt_mask=None,
                 tgt_key_padding_mask=y_mask,
@@ -262,12 +266,14 @@ class VALLF(nn.Module):
             y_pos = self.audio_position(y_emb)
 
             tgt_mask = torch.triu(
-                torch.ones(y.shape[1], y.shape[1], device=y.device, dtype=torch.bool),
+                torch.ones(
+                    y.shape[1], y.shape[1], device=y.device, dtype=torch.bool
+                ),
                 diagonal=1,
             )
 
-            y_dec = self.decoder_blocks[0](
-                y_pos,
+            y_dec, _ = self.decoder_blocks[0](
+                (y_pos, self.stage_embeddings.embedding(0)),
                 x,
                 tgt_mask=tgt_mask,
                 memory_mask=None,
@@ -289,16 +295,16 @@ class VALLF(nn.Module):
 
         codes = [y[:, prompts_len:]]
         # Non-AR Decoders
+        nar_decoder_block = self.decoder_blocks[1]
         # TODO: Adaptive Layer Normalization
-        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+        for i, (predict_layer, embedding_layer) in enumerate(
             zip(
-                self.decoder_blocks[1:],
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            y_dec = decoder_block(
-                y_pos,
+            y_dec, _ = nar_decoder_block(
+                (y_pos, self.stage_embeddings.embedding(i + 1)),
                 x,
                 tgt_mask=None,
                 memory_mask=None,
@@ -342,7 +348,7 @@ class VALLE(VALLF):
             nhead,
             num_layers,
             decoder_cls=nn.TransformerEncoder,
-            decoder_layer_cls=nn.TransformerEncoderLayer,
+            decoder_layer_cls=TransformerEncoderLayer,
         )
 
     def forward(
@@ -418,8 +424,8 @@ class VALLE(VALLF):
 
         xy_pos = torch.concat([x, y_pos], dim=1)
 
-        xy_dec = self.decoder_blocks[0](
-            xy_pos,
+        xy_dec, _ = self.decoder_blocks[0](
+            (xy_pos, self.stage_embeddings.embedding(0)),
             mask=xy_attn_mask,
             src_key_padding_mask=xy_padding_mask,
             # is_causal=True,
@@ -438,16 +444,16 @@ class VALLE(VALLF):
             (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
         )[0]
         # Non-AR Decoders
+        decoder_block = self.decoder_blocks[1]
         # TODO: Adaptive Layer Normalization
-        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+        for i, (predict_layer, embedding_layer) in enumerate(
             zip(
-                self.decoder_blocks[1:],
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            xy_dec = decoder_block(
-                xy_pos,
+            xy_dec, _ = decoder_block(
+                (xy_pos, self.stage_embeddings.embedding(i + 1)),
                 src_key_padding_mask=xy_padding_mask,
                 # is_causal=False,
             )
@@ -527,16 +533,18 @@ class VALLE(VALLF):
                 value=False,
             )
             y_attn_mask = F.pad(
-                torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
+                torch.triu(
+                    torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1
+                ),
                 (x_len, 0),
                 value=True,
             )
-            xy_attn_mask = torch.concat([x_attn_mask_pad, y_attn_mask], dim=0).to(
-                y.device
-            )
+            xy_attn_mask = torch.concat(
+                [x_attn_mask_pad, y_attn_mask], dim=0
+            ).to(y.device)
 
-            xy_dec = self.decoder_blocks[0](
-                xy_pos,
+            xy_dec, _ = self.decoder_blocks[0](
+                (xy_pos, self.stage_embeddings.embedding(0)),
                 mask=xy_attn_mask,
             )
             logits = self.predict_layers[0](xy_dec[:, -1:])
@@ -560,15 +568,17 @@ class VALLE(VALLF):
 
         codes = [y[:, prompts.shape[1] :]]
         # Non-AR Decoders
+        decoder_block = self.decoder_blocks[1]
         # TODO: Adaptive Layer Normalization
-        for i, (decoder_block, predict_layer, embedding_layer) in enumerate(
+        for i, (predict_layer, embedding_layer) in enumerate(
             zip(
-                self.decoder_blocks[1:],
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            xy_dec = decoder_block(xy_pos)
+            xy_dec, _ = decoder_block(
+                (xy_pos, self.stage_embeddings.embedding(i + 1))
+            )
             logits = predict_layer(xy_dec[:, prompts_len:])
 
             samples = torch.argmax(logits, dim=-1)
