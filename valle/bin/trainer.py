@@ -49,6 +49,7 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
 
+import deepspeed
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
@@ -114,8 +115,6 @@ def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
     for module in model.modules():
         if hasattr(module, "batch_count"):
             module.batch_count = batch_count
-
-
 
 
 def get_parser():
@@ -252,6 +251,15 @@ def get_parser():
 
     add_model_arguments(parser)
 
+    # Include DeepSpeed configuration arguments
+    parser = deepspeed.add_config_arguments(parser)
+    parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=None,
+        help="local rank passed from distributed launcher",
+    )
+
     return parser
 
 
@@ -306,6 +314,77 @@ def get_params() -> AttributeDict:
     return params
 
 
+def deepspeed_save_checkpoint(
+    filename: Path,
+    model: Union[nn.Module, DDP],
+    params: Optional[Dict[str, Any]] = None,
+    sampler: Optional[CutSampler] = None,
+    rank: int = 0,
+) -> None:
+    """Save training information to a file.
+
+    Args:
+      filename:
+        The checkpoint filename.
+      model:
+        The model to be saved. We only save its `state_dict()`.
+      params:
+        User defined parameters, e.g., epoch, loss.
+      rank:
+        Used in DDP. We save checkpoint only for the node whose rank is 0.
+    Returns:
+      Return None.
+    """
+    if rank != 0:
+        return
+
+    logging.info(f"Saving checkpoint to {filename}")
+
+    checkpoint = {
+        "sampler": sampler.state_dict() if sampler is not None else None,
+    }
+
+    if params:
+        for k, v in params.items():
+            assert k not in checkpoint
+            checkpoint[k] = v
+
+    torch.save(checkpoint, filename)
+
+    sd = {}
+    sd["iteration"] = params.batch_idx_train
+    # rng states.
+    if not params.no_save_rng:
+        sd["random_rng_state"] = random.getstate()
+        # sd["np_rng_state"] = np.random.get_state()
+        sd["torch_rng_state"] = torch.get_rng_state()
+        sd["cuda_rng_state"] = torch.cuda.get_rng_state()
+
+    model.save_checkpoint(filename, params.batch_idx_train, client_state=sd)
+
+
+def deepspeed_load_checkpoint(
+    filename: Path,
+    model: nn.Module,
+    sampler: Optional[CutSampler] = None,
+    strict: bool = False,
+) -> Dict[str, Any]:
+    logging.info(f"Loading checkpoint from {filename}")
+    checkpoint = torch.load(filename, map_location="cpu")
+
+    _, sd = model.load_checkpoint(filename, checkpoint["batch_idx_train"])
+
+    def load(name, obj):
+        s = checkpoint.get(name, None)
+        if obj and s:
+            obj.load_state_dict(s)
+            checkpoint.pop(name)
+
+    load("sampler", sampler)
+
+    return checkpoint
+
+
 def load_checkpoint_if_available(
     params: AttributeDict,
     model: nn.Module,
@@ -347,13 +426,16 @@ def load_checkpoint_if_available(
 
     assert filename.is_file(), f"{filename} does not exist!"
 
-    saved_params = load_checkpoint(
-        filename,
-        model=model,
-        model_avg=model_avg,
-        optimizer=optimizer,
-        scheduler=scheduler,
-    )
+    if params.deepspeed:
+        saved_params = deepspeed_load_checkpoint(filename, model)
+    else:
+        saved_params = load_checkpoint(
+            filename,
+            model=model,
+            model_avg=model_avg,
+            optimizer=optimizer,
+            scheduler=scheduler,
+        )
 
     keys = [
         "best_train_epoch",
@@ -401,17 +483,26 @@ def save_checkpoint(
     if rank != 0:
         return
     filename = params.exp_dir / f"epoch-{params.cur_epoch}.pt"
-    save_checkpoint_impl(
-        filename=filename,
-        model=model,
-        model_avg=model_avg,
-        params=params,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        sampler=sampler,
-        scaler=scaler,
-        rank=rank,
-    )
+    if params.deepspeed:
+        deepspeed_save_checkpoint(
+            filename=filename,
+            model=model,
+            params=params,
+            sampler=sampler,
+            rank=rank,
+        )
+    else:
+        save_checkpoint_impl(
+            filename=filename,
+            model=model,
+            model_avg=model_avg,
+            params=params,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            sampler=sampler,
+            scaler=scaler,
+            rank=rank,
+        )
 
     if params.best_train_epoch == params.cur_epoch:
         best_train_filename = params.exp_dir / "best-train-loss.pt"
@@ -589,15 +680,19 @@ def train_one_epoch(
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
-            scaler.scale(loss).backward()
+            if params.deepspeed:
+                model.backward(loss)
+                model.step()
+            else:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                scheduler.step()
+                # scheduler.step_batch(params.batch_idx_train)
+
             set_batch_count(model, params.batch_idx_train)
 
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-
-            scheduler.step()
-            # scheduler.step_batch(params.batch_idx_train)
         except:  # noqa
             display_and_save_batch(batch, params=params)
             raise
@@ -635,7 +730,7 @@ def train_one_epoch(
                 rank=rank,
             )
 
-        if batch_idx % 100 == 0 and params.use_fp16:
+        if batch_idx % 100 == 0 and params.use_fp16 and not params.deepspeed:
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
             # behavior depending on the current grad scale.
@@ -663,7 +758,7 @@ def train_one_epoch(
                 f"lr: {cur_lr:.2e}, "
                 + (
                     f"grad_scale: {scaler._scale.item()}"
-                    if params.use_fp16
+                    if (params.use_fp16 and not params.deepspeed)
                     else ""
                 )
             )
@@ -779,23 +874,38 @@ def run(rank, world_size, args):
         model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
-    checkpoints = load_checkpoint_if_available(
-        params=params, model=model, model_avg=model_avg
-    )
 
-    model.to(device)
-    if world_size > 1:
-        logging.info("Using DDP")
-        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    if not params.deepspeed:
+        model.to(device)
+        if world_size > 1:
+            logging.info("Using DDP")
+            model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=params.base_lr)
-
     scheduler = Scheduler(
         optimizer,
         dim_embed=params.decoder_dim,
         warmup_steps=params.warmup_steps,
     )
     scheduler.set_step(params.start_batch or params.batch_idx_train)
+
+    if params.deepspeed:
+        logging.info("DeepSpeed is enabled.")
+        assert world_size == 1, "DeepSpeed is not tested on multi-gpus yet."
+        deepspeed.init_distributed(dist_backend="gloo")  # gloo or nccl
+        model, optimizer, _, scheduler = deepspeed.initialize(
+            model=model,
+            model_parameters=model.parameters(),
+            optimizer=optimizer,
+            lr_scheduler=scheduler,
+            args=params,
+            mpu=None,
+            dist_init_required=False,
+        )
+
+    checkpoints = load_checkpoint_if_available(
+        params=params, model=model, model_avg=model_avg
+    )
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
@@ -925,8 +1035,11 @@ def scan_pessimistic_batches_for_oom(
                     batch=batch,
                     is_training=True,
                 )
-            loss.backward()
-            optimizer.zero_grad()
+            if params.deepspeed:
+                model.backward(loss)
+            else:
+                loss.backward()
+                optimizer.zero_grad()
         except Exception as e:
             if "CUDA out of memory" in str(e):
                 logging.error(
