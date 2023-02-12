@@ -70,7 +70,12 @@ To get up and running quickly just follow the steps below:
 
 ```
 # PyTorch
-pip3 install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+pip install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+
+# DeepSpeed
+# https://github.com/microsoft/DeepSpeed/issues/2697
+sudo apt-get install -y libopenmpi-dev
+pip install mpi4py deepspeed==0.7.7
 
 # phonemizer
 apt-get install espeak-ng

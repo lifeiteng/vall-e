@@ -109,18 +109,21 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   fi
 fi
 
-exit 0
-
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
-  log "Stage 4: Train LibriTTS"
+  log "Stage 4: Train nano config"
 
   # nano
   python3 bin/trainer.py \
     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
     --exp-dir exp/valle_nano
+fi
+
+if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
+  log "Stage 5: Train raw config"
 
   # same as paper
   python3 bin/trainer.py \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
-    --exp-dir exp/valle
+    --deepspeed --deepspeed_config configs/ds_zero2.config \
+    --exp-dir exp/valle_ds_zero2
 fi
