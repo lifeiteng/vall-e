@@ -115,6 +115,7 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   # nano
   python3 bin/trainer.py \
     --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+    --num-epochs 1 \
     --exp-dir exp/valle_nano
 fi
 
