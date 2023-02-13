@@ -68,6 +68,8 @@ from lhotse.dataset.sampling.base import CutSampler
 from lhotse.utils import fix_random_seed
 from torch import Tensor
 from torch.cuda.amp import GradScaler
+from torch.distributed.fsdp import CPUOffload
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
@@ -108,14 +110,13 @@ class Scheduler(torch.optim.lr_scheduler._LRScheduler):
 
 
 def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
-    if isinstance(model, DDP):
+    if isinstance(model, DDP) or isinstance(model, FSDP):
         # get underlying nn.Module
         model = model.module
+
     for module in model.modules():
         if hasattr(module, "batch_count"):
             module.batch_count = batch_count
-
-
 
 
 def get_parser():
@@ -787,6 +788,22 @@ def run(rank, world_size, args):
     if world_size > 1:
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+
+    if False:  # didn't reduce GPU MEM usage
+        import os
+
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = "12354"
+        torch.distributed.init_process_group(
+            backend="nccl", world_size=world_size, rank=rank
+        )
+        torch.cuda.set_device(rank % torch.cuda.device_count())
+        model = FSDP(
+            model,
+            cpu_offload=CPUOffload(offload_params=False),
+            sync_module_states=True,
+            forward_prefetch=True,
+        )
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=params.base_lr)
 
