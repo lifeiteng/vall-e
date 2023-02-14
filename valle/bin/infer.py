@@ -106,7 +106,9 @@ def main():
     model = get_model(args)
     if args.checkpoint.is_file():
         checkpoint = torch.load(args.checkpoint, map_location=device)
-        missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=True)
+        missing_keys, unexpected_keys = model.load_state_dict(
+            checkpoint["model"], strict=True
+        )
         assert not missing_keys
         # from icefall.checkpoint import save_checkpoint
         # save_checkpoint(f"{args.checkpoint}", model=model)
@@ -143,18 +145,22 @@ def main():
             [tokenize_text(text_tokenizer, text=text)]
         )
 
-        text_tokens = torch.concat([text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1)
+        text_tokens = torch.concat(
+            [text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1
+        )
         text_tokens_lens += text_prompts_lens - 2
 
         # synthesis
         encoded_frames = model.inference(
-            text_tokens, text_tokens_lens, audio_prompts
+            text_tokens.to(device),
+            text_tokens_lens.to(device),
+            audio_prompts.to(device),
         )
         samples = audio_tokenizer.decode(
             [(encoded_frames.transpose(2, 1), None)]
         )
         # store
-        torchaudio.save(f"{args.output_dir}/{n}.wav", samples[0], 24000)
+        torchaudio.save(f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000)
 
 
 torch.set_num_threads(1)

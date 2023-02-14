@@ -128,7 +128,7 @@ class AudioTokenizer:
         return self._device
 
     def encode(self, wav: torch.Tensor) -> torch.Tensor:
-        return self.codec.encode(wav)
+        return self.codec.encode(wav.to(self.device))
 
     def decode(self, frames: torch.Tensor) -> torch.Tensor:
         return self.codec.decode(frames)
