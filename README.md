@@ -9,6 +9,8 @@ An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are
 **model trained with nano config(about 100x smaller than the paper config) can synthesize human-like speech.**
 
 ```
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+
 cd egs/libritts
 
 # VALL-E

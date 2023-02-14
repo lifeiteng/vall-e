@@ -7,6 +7,8 @@
 **使用 nano 配置（比论文配置小 100 倍左右）训练的模型，已经能够合成类人的语音。**
 
 ```
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+
 cd egs/libritts
 
 # VALL-E
