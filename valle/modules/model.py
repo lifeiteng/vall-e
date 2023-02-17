@@ -118,6 +118,7 @@ class VALLF(nn.Module):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, None] = None,
         y_lens: Union[torch.Tensor, None] = None,
+        reduction: str = "sum",
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -184,7 +185,7 @@ class VALLF(nn.Module):
         logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
         # loss
         total_loss = F.cross_entropy(
-            logits, targets.reshape([-1]), reduction="sum"
+            logits, targets.reshape([-1]), reduction=reduction
         )
         # samples = [
         #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
@@ -217,7 +218,7 @@ class VALLF(nn.Module):
                 logits.permute(0, 2, 1),
                 targets,
                 ignore_index=NUM_AUDIO_TOKENS,
-                reduction="sum",
+                reduction=reduction,
             )
 
             if i + 1 == stop_idx or i == 6:
@@ -362,6 +363,7 @@ class VALLE(VALLF):
         x_lens: torch.Tensor,
         y: Union[torch.Tensor, None] = None,
         y_lens: Union[torch.Tensor, None] = None,
+        reduction: str = "sum",
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -439,7 +441,7 @@ class VALLE(VALLF):
         logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
         # loss
         total_loss = F.cross_entropy(
-            logits, targets.reshape([-1]), reduction="sum"
+            logits, targets.reshape([-1]), reduction=reduction
         )
         # samples = [
         #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
@@ -469,7 +471,7 @@ class VALLE(VALLF):
                 logits.permute(0, 2, 1),
                 targets,
                 ignore_index=NUM_AUDIO_TOKENS,
-                reduction="sum",
+                reduction=reduction,
             )
 
             if i + 1 == stop_idx or i == 6:

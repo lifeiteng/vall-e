@@ -39,10 +39,10 @@ python3 bin/trainer.py \
     --use-fp16 1 \
 """
 
-
 import argparse
 import copy
 import logging
+import os
 import random
 import warnings
 from pathlib import Path
@@ -76,6 +76,8 @@ from valle.data import TtsDataModule
 from valle.modules import add_model_arguments, get_model
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
+
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 
 def calc_lr(step, dim_embed, warmup_steps):
@@ -702,11 +704,12 @@ def train_one_epoch(
             and params.batch_idx_train > 0
             and params.batch_idx_train % params.average_period == 0
         ):
-            update_averaged_model(
-                params=params,
-                model_cur=model,
-                model_avg=model_avg,
-            )
+            if not params.deepspeed:
+                update_averaged_model(
+                    params=params,
+                    model_cur=model,
+                    model_avg=model_avg,
+                )
 
         if (
             params.batch_idx_train > 0
@@ -748,7 +751,9 @@ def train_one_epoch(
 
         if batch_idx % params.log_interval == 0:
             cur_lr = scheduler.get_last_lr()[0]
-            cur_grad_scale = scaler._scale.item() if params.use_fp16 else 1.0
+            cur_grad_scale = 1.0
+            if params.use_fp16 and not params.deepspeed:
+                cur_grad_scale = scaler._scale.item()
 
             logging.info(
                 f"Epoch {params.cur_epoch}, "
@@ -869,7 +874,7 @@ def run(rank, world_size, args):
 
     assert params.save_every_n >= params.average_period
     model_avg: Optional[nn.Module] = None
-    if rank == 0:
+    if rank == 0 and not params.deepspeed:
         # model_avg is only used with rank 0
         model_avg = copy.deepcopy(model).to(torch.float64)
 
@@ -881,27 +886,38 @@ def run(rank, world_size, args):
             logging.info("Using DDP")
             model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=params.base_lr)
-    scheduler = Scheduler(
-        optimizer,
-        dim_embed=params.decoder_dim,
-        warmup_steps=params.warmup_steps,
-    )
-    scheduler.set_step(params.start_batch or params.batch_idx_train)
+    def _get_scheduler(optimizer):
+        scheduler = Scheduler(
+            optimizer,
+            dim_embed=params.decoder_dim,
+            warmup_steps=params.warmup_steps,
+        )
+        scheduler.set_step(params.start_batch or params.batch_idx_train)
+        return scheduler
 
     if params.deepspeed:
         logging.info("DeepSpeed is enabled.")
-        assert world_size == 1, "DeepSpeed is not tested on multi-gpus yet."
-        deepspeed.init_distributed(dist_backend="gloo")  # gloo or nccl
+        from deepspeed.ops.adam import DeepSpeedCPUAdam
+
+        optimizer = DeepSpeedCPUAdam(
+            model.parameters(), lr=params.base_lr, weight_decay=1e-2
+        )
+
+        deepspeed.init_distributed(dist_backend="nccl")
         model, optimizer, _, scheduler = deepspeed.initialize(
             model=model,
             model_parameters=model.parameters(),
             optimizer=optimizer,
-            lr_scheduler=scheduler,
+            lr_scheduler=_get_scheduler(optimizer),
             args=params,
             mpu=None,
             dist_init_required=False,
         )
+    else:
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=params.base_lr, weight_decay=1e-2
+        )
+        scheduler = _get_scheduler(optimizer)
 
     checkpoints = load_checkpoint_if_available(
         params=params, model=model, model_avg=model_avg
@@ -930,12 +946,13 @@ def run(rank, world_size, args):
     dataset = TtsDataModule(args)
     train_cuts = dataset.train_cuts()
     valid_cuts = dataset.dev_cuts()
+
     train_cuts = filter_short_and_long_utterances(train_cuts)
+    valid_cuts = filter_short_and_long_utterances(valid_cuts)
 
     train_dl = dataset.train_dataloaders(
         train_cuts, sampler_state_dict=sampler_state_dict
     )
-
     valid_dl = dataset.valid_dataloaders(valid_cuts)
 
     if True:

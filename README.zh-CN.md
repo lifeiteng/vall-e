@@ -60,12 +60,23 @@ python3 bin/infer.py \
 - [x] update README.zh-CN
 - [x] Training
 - [x] Inference: In-Context Learning via Prompting
+- [x] DeepSpeed: train large model on single GPU
 
 
 ## 安装
 
 
 ```
+# PyTorch
+pip install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+
+# DeepSpeed
+sudo apt-get install -y libopenmpi-dev
+pip install mpi4py
+git clone https://github.com/microsoft/DeepSpeed.git
+cd DeepSpeed
+DS_BUILD_CPU_ADAM=1 pip install -e .
+
 # phonemizer
 apt-get install espeak-ng
 ## OSX: brew install espeak

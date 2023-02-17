@@ -122,7 +122,7 @@ if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
   log "Stage 5: Train raw config"
 
   # same as paper
-  python3 bin/trainer.py \
+  deepspeed bin/trainer.py --max-duration 40 --use-fp16 true \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
     --deepspeed --deepspeed_config configs/ds_zero2.config \
     --exp-dir exp/valle_ds_zero2
