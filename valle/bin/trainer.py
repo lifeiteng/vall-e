@@ -733,15 +733,19 @@ def train_one_epoch(
                 rank=rank,
             )
 
-        if batch_idx % 100 == 0 and params.use_fp16 and not params.deepspeed:
+        if batch_idx % 100 == 0 and params.use_fp16:
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
             # behavior depending on the current grad scale.
-            cur_grad_scale = scaler._scale.item()
-            if cur_grad_scale < 1.0 or (
-                cur_grad_scale < 8.0 and batch_idx % 400 == 0
-            ):
-                scaler.update(cur_grad_scale * 2.0)
+            if params.deepspeed:
+                cur_grad_scale = optimizer.cur_scale
+            else:
+                cur_grad_scale = scaler._scale.item()
+                if cur_grad_scale < 1.0 or (
+                    cur_grad_scale < 8.0 and batch_idx % 400 == 0
+                ):
+                    scaler.update(cur_grad_scale * 2.0)
+
             if cur_grad_scale < 0.01:
                 logging.warning(f"Grad scale is small: {cur_grad_scale}")
             if cur_grad_scale < 1.0e-05:
@@ -752,8 +756,11 @@ def train_one_epoch(
         if batch_idx % params.log_interval == 0:
             cur_lr = scheduler.get_last_lr()[0]
             cur_grad_scale = 1.0
-            if params.use_fp16 and not params.deepspeed:
-                cur_grad_scale = scaler._scale.item()
+            if params.use_fp16:
+                if params.deepspeed:
+                    cur_grad_scale = optimizer.cur_scale
+                else:
+                    cur_grad_scale = scaler._scale.item()
 
             logging.info(
                 f"Epoch {params.cur_epoch}, "
@@ -762,7 +769,7 @@ def train_one_epoch(
                 f"batch size: {batch_size}, "
                 f"lr: {cur_lr:.2e}, "
                 + (
-                    f"grad_scale: {scaler._scale.item()}"
+                    f"grad_scale: {cur_grad_scale}"
                     if (params.use_fp16 and not params.deepspeed)
                     else ""
                 )
@@ -899,21 +906,15 @@ def run(rank, world_size, args):
     if params.deepspeed:
         logging.info("DeepSpeed is enabled.")
         import hjson
-        from deepspeed.ops.adam import DeepSpeedCPUAdam
-
-        optimizer = DeepSpeedCPUAdam(
-            model.parameters(), lr=params.base_lr, weight_decay=1e-2
-        )
 
         deepspeed_config = hjson.load(open(params.deepspeed_config, "r"))
         deepspeed_config["fp16"]["enabled"] = params.use_fp16
+        deepspeed_config["optimizer"]["params"]["lr"] = params.base_lr
 
         deepspeed.init_distributed(dist_backend="nccl")
         model, optimizer, _, scheduler = deepspeed.initialize(
             model=model,
             model_parameters=model.parameters(),
-            optimizer=optimizer,
-            lr_scheduler=_get_scheduler(optimizer),
             args=params,
             mpu=None,
             dist_init_required=False,
