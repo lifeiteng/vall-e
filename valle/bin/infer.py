@@ -26,7 +26,10 @@ Usage example:
 """
 import argparse
 import logging
+import os
 from pathlib import Path
+
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import torch
 import torchaudio

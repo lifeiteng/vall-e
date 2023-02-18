@@ -537,6 +537,12 @@ class VALLE(VALLF):
                 samples[0, 0] == NUM_AUDIO_TOKENS
                 or (y.shape[1] - prompts.shape[1]) > x_lens.max() * 20
             ):
+                if prompts.shape[1] == y.shape[1]:
+                    y = torch.concat([y, samples], dim=1)
+                    y_emb = self.audio_embeddings[0](y)
+                    y_pos = self.audio_position(y_emb)
+                    xy_pos = torch.concat([x, y_pos], dim=1)
+
                 print(f"EOS [{prompts.shape[1]} -> {y.shape[1]}]")
                 break
 
