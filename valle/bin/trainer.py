@@ -43,6 +43,9 @@ import argparse
 import copy
 import logging
 import os
+
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import random
 import warnings
 from pathlib import Path
@@ -76,8 +79,6 @@ from valle.data import TtsDataModule
 from valle.modules import add_model_arguments, get_model
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
-
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 
 def calc_lr(step, dim_embed, warmup_steps):
@@ -317,77 +318,6 @@ def get_params() -> AttributeDict:
     return params
 
 
-def deepspeed_save_checkpoint(
-    filename: Path,
-    model: Union[nn.Module, DDP],
-    params: Optional[Dict[str, Any]] = None,
-    sampler: Optional[CutSampler] = None,
-    rank: int = 0,
-) -> None:
-    """Save training information to a file.
-
-    Args:
-      filename:
-        The checkpoint filename.
-      model:
-        The model to be saved. We only save its `state_dict()`.
-      params:
-        User defined parameters, e.g., epoch, loss.
-      rank:
-        Used in DDP. We save checkpoint only for the node whose rank is 0.
-    Returns:
-      Return None.
-    """
-    if rank != 0:
-        return
-
-    logging.info(f"Saving checkpoint to {filename}")
-
-    checkpoint = {
-        "sampler": sampler.state_dict() if sampler is not None else None,
-    }
-
-    if params:
-        for k, v in params.items():
-            assert k not in checkpoint
-            checkpoint[k] = v
-
-    torch.save(checkpoint, filename)
-
-    sd = {}
-    sd["iteration"] = params.batch_idx_train
-    # rng states.
-    if not params.no_save_rng:
-        sd["random_rng_state"] = random.getstate()
-        # sd["np_rng_state"] = np.random.get_state()
-        sd["torch_rng_state"] = torch.get_rng_state()
-        sd["cuda_rng_state"] = torch.cuda.get_rng_state()
-
-    model.save_checkpoint(filename, params.batch_idx_train, client_state=sd)
-
-
-def deepspeed_load_checkpoint(
-    filename: Path,
-    model: nn.Module,
-    sampler: Optional[CutSampler] = None,
-    strict: bool = False,
-) -> Dict[str, Any]:
-    logging.info(f"Loading checkpoint from {filename}")
-    checkpoint = torch.load(filename, map_location="cpu")
-
-    _, sd = model.load_checkpoint(filename, checkpoint["batch_idx_train"])
-
-    def load(name, obj):
-        s = checkpoint.get(name, None)
-        if obj and s:
-            obj.load_state_dict(s)
-            checkpoint.pop(name)
-
-    load("sampler", sampler)
-
-    return checkpoint
-
-
 def load_checkpoint_if_available(
     params: AttributeDict,
     model: nn.Module,
@@ -429,16 +359,13 @@ def load_checkpoint_if_available(
 
     assert filename.is_file(), f"{filename} does not exist!"
 
-    if params.deepspeed:
-        saved_params = deepspeed_load_checkpoint(filename, model)
-    else:
-        saved_params = load_checkpoint(
-            filename,
-            model=model,
-            model_avg=model_avg,
-            optimizer=optimizer,
-            scheduler=scheduler,
-        )
+    saved_params = load_checkpoint(
+        filename,
+        model=model,
+        model_avg=model_avg,
+        optimizer=optimizer,
+        scheduler=scheduler,
+    )
 
     keys = [
         "best_train_epoch",
@@ -486,26 +413,17 @@ def save_checkpoint(
     if rank != 0:
         return
     filename = params.exp_dir / f"epoch-{params.cur_epoch}.pt"
-    if params.deepspeed:
-        deepspeed_save_checkpoint(
-            filename=filename,
-            model=model,
-            params=params,
-            sampler=sampler,
-            rank=rank,
-        )
-    else:
-        save_checkpoint_impl(
-            filename=filename,
-            model=model,
-            model_avg=model_avg,
-            params=params,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            sampler=sampler,
-            scaler=scaler,
-            rank=rank,
-        )
+    save_checkpoint_impl(
+        filename=filename,
+        model=model,
+        model_avg=model_avg,
+        params=params,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        sampler=sampler,
+        scaler=scaler,
+        rank=rank,
+    )
 
     if params.best_train_epoch == params.cur_epoch:
         best_train_filename = params.exp_dir / "best-train-loss.pt"
@@ -933,7 +851,10 @@ def run(rank, world_size, args):
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
-        optimizer.load_state_dict(checkpoints["optimizer"])
+        if params.deepspeed:
+            optimizer.load_state_dict({rank: checkpoints["optimizer"]})
+        else:
+            optimizer.load_state_dict(checkpoints["optimizer"])
 
     if (
         checkpoints
