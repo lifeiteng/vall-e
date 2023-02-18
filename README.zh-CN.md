@@ -3,37 +3,8 @@
 <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
 ## Inference: In-Context Learning via Prompting
+see [LibriTTS/Inference](https://github.com/lifeiteng/vall-e/blob/main/egs/libritts/README.md#inference)
 
-**使用 nano 配置（比论文配置小 100 倍左右）训练的模型，已经能够合成类人的语音。**
-
-```
-cd egs/libritts
-
-# VALL-E
-# nano config is too small, so the AR-Decoder may not work well.
-# re-run to get new(diverse) result.
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-    --text-prompts "Go to her." \
-    --audio-prompts ./prompts/61_70970_000007_000001.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_valle_PostNorm_epoch10 \
-    --checkpoint exp/valle_nano_v41_PostNorm/epoch-10.pt
-
-
-# VALL-F is more stable
-python3 bin/infer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name vallf \
-    --text-prompts "Go to her." \
-    --audio-prompts ./prompts/61_70970_000007_000001.wav \
-    --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demo_vallf_PostNorm_epoch10 \
-    --checkpoint exp/vallf_nano_v41_PostNorm/epoch-10.pt
-```
-###### VALL-E nano config epoch-20
-<img src="./docs/images/valle.png" width="500" height="400">
-
-###### VALL-F nano config epoch-10
 <img src="./docs/images/vallf.png" width="500" height="400">
 
 ## Demo
