@@ -23,10 +23,12 @@ dl_dir=$PWD/download
 dataset_parts="--dataset-parts all"  # all
 
 model_name="valle"
-deepspeed=true
 max_duration=40
 use_fp16=true
 num_decoder_layers=12
+
+deepspeed=false
+deepspeed_config=configs/ds_zero2.config
 
 . shared/parse_options.sh || exit 1
 
@@ -122,7 +124,7 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   if $deepspeed;then
     deepspeed bin/trainer.py --max-duration ${max_duration} --use-fp16 ${use_fp16} \
       --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
-      --deepspeed --deepspeed_config configs/ds_zero2.config \
+      --deepspeed --deepspeed_config ${deepspeed_config} \
       --model-name "${model_name}" \
       --exp-dir exp/${model_name}_ds_zero2
   else
