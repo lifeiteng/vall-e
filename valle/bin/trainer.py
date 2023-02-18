@@ -793,12 +793,13 @@ def train_one_epoch(
 
         if batch_idx % params.valid_interval == 0:
             logging.info("Computing validation loss")
-            valid_info = compute_validation_loss(
-                params=params,
-                model=model,
-                valid_dl=valid_dl,
-                world_size=world_size,
-            )
+            with torch.cuda.amp.autocast(enabled=params.use_fp16):
+                valid_info = compute_validation_loss(
+                    params=params,
+                    model=model,
+                    valid_dl=valid_dl,
+                    world_size=world_size,
+                )
             model.train()
             logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
             logging.info(
@@ -816,10 +817,10 @@ def train_one_epoch(
         params.best_train_loss = params.train_loss
 
 
-def filter_short_and_long_utterances(cuts: CutSet) -> CutSet:
+def filter_short_and_long_utterances(cuts: CutSet, max_duration) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
-        if c.duration < 0.6 or c.duration > 20.0:
+        if c.duration < 0.6 or c.duration > min(20.0, max_duration):
             # logging.warning(
             #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             # )
@@ -897,11 +898,15 @@ def run(rank, world_size, args):
 
     if params.deepspeed:
         logging.info("DeepSpeed is enabled.")
+        import hjson
         from deepspeed.ops.adam import DeepSpeedCPUAdam
 
         optimizer = DeepSpeedCPUAdam(
             model.parameters(), lr=params.base_lr, weight_decay=1e-2
         )
+
+        deepspeed_config = hjson.load(open(params.deepspeed_config, "r"))
+        deepspeed_config["fp16"]["enabled"] = params.use_fp16
 
         deepspeed.init_distributed(dist_backend="nccl")
         model, optimizer, _, scheduler = deepspeed.initialize(
@@ -912,6 +917,7 @@ def run(rank, world_size, args):
             args=params,
             mpu=None,
             dist_init_required=False,
+            config=deepspeed_config,
         )
     else:
         optimizer = torch.optim.AdamW(
@@ -947,8 +953,12 @@ def run(rank, world_size, args):
     train_cuts = dataset.train_cuts()
     valid_cuts = dataset.dev_cuts()
 
-    train_cuts = filter_short_and_long_utterances(train_cuts)
-    valid_cuts = filter_short_and_long_utterances(valid_cuts)
+    train_cuts = filter_short_and_long_utterances(
+        train_cuts, params.max_duration
+    )
+    valid_cuts = filter_short_and_long_utterances(
+        valid_cuts, params.max_duration
+    )
 
     train_dl = dataset.train_dataloaders(
         train_cuts, sampler_state_dict=sampler_state_dict

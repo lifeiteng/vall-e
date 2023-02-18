@@ -116,8 +116,8 @@ class VALLF(nn.Module):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: Union[torch.Tensor, None] = None,
-        y_lens: Union[torch.Tensor, None] = None,
+        y: torch.Tensor,
+        y_lens: torch.Tensor,
         reduction: str = "sum",
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
@@ -191,46 +191,33 @@ class VALLF(nn.Module):
         #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
         # ]
 
-        stop_idx = self.rng.choices(
+        # Non-AR Decoders
+        train_stage = self.rng.choices(
             (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
         )[0]
-        # Non-AR Decoders
-        nar_decoder_block = self.decoder_blocks[1]
-        for i, (predict_layer, embedding_layer) in enumerate(
-            zip(
-                self.predict_layers[1:],
-                self.audio_embeddings[1:] + [None],
-            )
-        ):
-            y_dec, _ = nar_decoder_block(
-                (y_pos, self.stage_embeddings.embedding(i + 1)),
-                x,
-                tgt_mask=None,
-                tgt_key_padding_mask=y_mask,
-                memory_mask=None,
-                memory_key_padding_mask=x_mask,
-            )
-            logits = predict_layer(y_dec)
-
-            # loss
-            targets = codes[..., i + 1] + NUM_AUDIO_TOKENS * y_mask_int
-            total_loss += F.cross_entropy(
-                logits.permute(0, 2, 1),
-                targets,
-                ignore_index=NUM_AUDIO_TOKENS,
-                reduction=reduction,
-            )
-
-            if i + 1 == stop_idx or i == 6:
-                break
-
-            # samples.append(
-            #     torch.multinomial(F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1), num_samples=1)
-            # )
+        for i in range(0, train_stage - 1):
             # Formula (4) (5)
-            y_pos = y_pos + embedding_layer(codes[..., i + 1])
+            y_pos = y_pos + self.audio_embeddings[i + 1](codes[..., i + 1])
+        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
-        return (codes, total_loss / (stop_idx + 1.0))
+        y_dec, _ = self.decoder_blocks[1](
+            (y_pos, self.stage_embeddings.embedding(train_stage)),
+            x,
+            tgt_mask=None,
+            tgt_key_padding_mask=y_mask,
+            memory_mask=None,
+            memory_key_padding_mask=x_mask,
+        )
+        logits = self.predict_layers[train_stage](y_dec)
+        # loss
+        total_loss += F.cross_entropy(
+            logits.permute(0, 2, 1),
+            targets,
+            ignore_index=NUM_AUDIO_TOKENS,
+            reduction=reduction,
+        )
+
+        return (codes, total_loss / 2.0)
 
     def inference(
         self,
@@ -361,8 +348,8 @@ class VALLE(VALLF):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: Union[torch.Tensor, None] = None,
-        y_lens: Union[torch.Tensor, None] = None,
+        y: torch.Tensor,
+        y_lens: torch.Tensor,
         reduction: str = "sum",
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
@@ -447,46 +434,34 @@ class VALLE(VALLF):
         #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
         # ]
 
-        stop_idx = self.rng.choices(
+        # Non-AR Decoders
+        train_stage = self.rng.choices(
             (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
         )[0]
-        # Non-AR Decoders
-        nar_decoder_block = self.decoder_blocks[1]
-        for i, (predict_layer, embedding_layer) in enumerate(
-            zip(
-                self.predict_layers[1:],
-                self.audio_embeddings[1:] + [None],
-            )
-        ):
-            xy_dec, _ = nar_decoder_block(
-                (xy_pos, self.stage_embeddings.embedding(i + 1)),
-                src_key_padding_mask=xy_padding_mask,
-                # is_causal=False,
-            )
-            logits = predict_layer(xy_dec[:, x_len:])
-
-            # loss
-            targets = codes[..., i + 1] + NUM_AUDIO_TOKENS * y_mask_int
-            total_loss += F.cross_entropy(
-                logits.permute(0, 2, 1),
-                targets,
-                ignore_index=NUM_AUDIO_TOKENS,
-                reduction=reduction,
-            )
-
-            if i + 1 == stop_idx or i == 6:
-                break
-
-            # samples.append(
-            #     torch.multinomial(F.softmax(logits.reshape([-1, NUM_AUDIO_TOKENS]), dim=1), num_samples=1)
-            # )
+        for i in range(0, train_stage - 1):
             # Formula (4) (5)
             # xy_pos[:, x_len:] = xy_pos[:, x_len:] + embedding_layer(codes[..., i + 1])
             # xy_pos[:, x_len:] += embedding_layer(codes[..., i + 1])
-            y_pos = y_pos + embedding_layer(codes[..., i + 1])
-            xy_pos = torch.concat([x, y_pos], dim=1)
+            y_pos = y_pos + self.audio_embeddings[i + 1](codes[..., i + 1])
+        xy_pos = torch.concat([x, y_pos], dim=1)
+        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
-        return (codes, total_loss / (stop_idx + 1.0))
+        xy_dec, _ = self.decoder_blocks[1](
+            (xy_pos, self.stage_embeddings.embedding(train_stage)),
+            src_key_padding_mask=xy_padding_mask,
+            # is_causal=False,
+        )
+        logits = self.predict_layers[train_stage](xy_dec[:, x_len:])
+
+        # loss
+        total_loss += F.cross_entropy(
+            logits.permute(0, 2, 1),
+            targets,
+            ignore_index=NUM_AUDIO_TOKENS,
+            reduction=reduction,
+        )
+
+        return (codes, total_loss / 2.0)
 
     def inference(
         self,

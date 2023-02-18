@@ -22,6 +22,12 @@ dl_dir=$PWD/download
 # dataset_parts="-p dev-clean -p test-clean"  # debug
 dataset_parts="--dataset-parts all"  # all
 
+model_name="valle"
+deepspeed=true
+max_duration=40
+use_fp16=true
+num_decoder_layers=12
+
 . shared/parse_options.sh || exit 1
 
 
@@ -110,20 +116,19 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 fi
 
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
-  log "Stage 4: Train nano config"
-
-  # nano
-  python3 bin/trainer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-    --exp-dir exp/valle_nano
-fi
-
-if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
-  log "Stage 5: Train raw config"
+  log "Stage 4: Train ${model_name}"
 
   # same as paper
-  deepspeed bin/trainer.py --max-duration 40 --use-fp16 true \
-    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
-    --deepspeed --deepspeed_config configs/ds_zero2.config \
-    --exp-dir exp/valle_ds_zero2
+  if $deepspeed;then
+    deepspeed bin/trainer.py --max-duration ${max_duration} --use-fp16 ${use_fp16} \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
+      --deepspeed --deepspeed_config configs/ds_zero2.config \
+      --model-name "${model_name}" \
+      --exp-dir exp/${model_name}_ds_zero2
+  else
+    python3 bin/trainer.py --max-duration ${max_duration} --use-fp16 ${use_fp16} \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
+      --model-name "${model_name}" \
+      --exp-dir exp/${model_name}
+  fi
 fi
