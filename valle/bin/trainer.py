@@ -114,6 +114,7 @@ def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
     if isinstance(model, DDP):
         # get underlying nn.Module
         model = model.module
+
     for module in model.modules():
         if hasattr(module, "batch_count"):
             module.batch_count = batch_count
