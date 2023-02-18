@@ -2,6 +2,8 @@ Language : 🇺🇸 | [🇨🇳](./README.zh-CN.md)
 
 An unofficial PyTorch implementation of VALL-E([Neural Codec Language Models are Zero-Shot Text to Speech Synthesizers](https://arxiv.org/abs/2301.02111)).
 
+We can train the VALL-E model on one GPU.
+
 ![model](./docs/images/Overview.jpg)
 
 ## Inference: In-Context Learning via Prompting
