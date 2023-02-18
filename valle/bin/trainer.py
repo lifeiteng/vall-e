@@ -52,7 +52,6 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
 
-import deepspeed
 import torch
 import torch.multiprocessing as mp
 import torch.nn as nn
@@ -254,15 +253,6 @@ def get_parser():
     )
 
     add_model_arguments(parser)
-
-    # Include DeepSpeed configuration arguments
-    parser = deepspeed.add_config_arguments(parser)
-    parser.add_argument(
-        "--local_rank",
-        type=int,
-        default=None,
-        help="local rank passed from distributed launcher",
-    )
 
     return parser
 
@@ -601,16 +591,13 @@ def train_one_epoch(
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
-            if params.deepspeed:
-                model.backward(loss)
-                model.step()
-            else:
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-                scheduler.step()
-                # scheduler.step_batch(params.batch_idx_train)
+
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
+            scheduler.step()
+            # scheduler.step_batch(params.batch_idx_train)
 
             set_batch_count(model, params.batch_idx_train)
 
@@ -623,12 +610,11 @@ def train_one_epoch(
             and params.batch_idx_train > 0
             and params.batch_idx_train % params.average_period == 0
         ):
-            if not params.deepspeed:
-                update_averaged_model(
-                    params=params,
-                    model_cur=model,
-                    model_avg=model_avg,
-                )
+            update_averaged_model(
+                params=params,
+                model_cur=model,
+                model_avg=model_avg,
+            )
 
         if (
             params.batch_idx_train > 0
@@ -656,14 +642,11 @@ def train_one_epoch(
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
             # behavior depending on the current grad scale.
-            if params.deepspeed:
-                cur_grad_scale = optimizer.cur_scale
-            else:
-                cur_grad_scale = scaler._scale.item()
-                if cur_grad_scale < 1.0 or (
-                    cur_grad_scale < 8.0 and batch_idx % 400 == 0
-                ):
-                    scaler.update(cur_grad_scale * 2.0)
+            cur_grad_scale = scaler._scale.item()
+            if cur_grad_scale < 1.0 or (
+                cur_grad_scale < 8.0 and batch_idx % 400 == 0
+            ):
+                scaler.update(cur_grad_scale * 2.0)
 
             if cur_grad_scale < 0.01:
                 logging.warning(f"Grad scale is small: {cur_grad_scale}")
@@ -674,12 +657,7 @@ def train_one_epoch(
 
         if batch_idx % params.log_interval == 0:
             cur_lr = scheduler.get_last_lr()[0]
-            cur_grad_scale = 1.0
-            if params.use_fp16:
-                if params.deepspeed:
-                    cur_grad_scale = optimizer.cur_scale
-                else:
-                    cur_grad_scale = scaler._scale.item()
+            cur_grad_scale = scaler._scale.item() if params.use_fp16 else 1.0
 
             logging.info(
                 f"Epoch {params.cur_epoch}, "
@@ -687,11 +665,7 @@ def train_one_epoch(
                 f"tot_loss[{tot_loss}], "
                 f"batch size: {batch_size}, "
                 f"lr: {cur_lr:.2e}, "
-                + (
-                    f"grad_scale: {cur_grad_scale}"
-                    if (params.use_fp16 and not params.deepspeed)
-                    else ""
-                )
+                + (f"grad_scale: {cur_grad_scale}" if params.use_fp16 else "")
             )
 
             if tb_writer is not None:
@@ -789,8 +763,11 @@ def run(rank, world_size, args):
     device = torch.device("cpu")
     if torch.cuda.is_available():
         device = torch.device("cuda", rank)
-    logging.info(f"Device: {device}")
+        # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cuda.matmul.allow_tf32 = True
 
+    logging.info(f"Device: {device}")
     logging.info(params)
 
     logging.info("About to create model")
@@ -801,17 +778,16 @@ def run(rank, world_size, args):
 
     assert params.save_every_n >= params.average_period
     model_avg: Optional[nn.Module] = None
-    if rank == 0 and not params.deepspeed:
+    if rank == 0:
         # model_avg is only used with rank 0
         model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
 
-    if not params.deepspeed:
-        model.to(device)
-        if world_size > 1:
-            logging.info("Using DDP")
-            model = DDP(model, device_ids=[rank], find_unused_parameters=True)
+    model.to(device)
+    if world_size > 1:
+        logging.info("Using DDP")
+        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
     def _get_scheduler(optimizer):
         scheduler = Scheduler(
@@ -822,28 +798,10 @@ def run(rank, world_size, args):
         scheduler.set_step(params.start_batch or params.batch_idx_train)
         return scheduler
 
-    if params.deepspeed:
-        logging.info("DeepSpeed is enabled.")
-        import hjson
-
-        deepspeed_config = hjson.load(open(params.deepspeed_config, "r"))
-        deepspeed_config["fp16"]["enabled"] = params.use_fp16
-        deepspeed_config["optimizer"]["params"]["lr"] = params.base_lr
-
-        deepspeed.init_distributed(dist_backend="nccl")
-        model, optimizer, _, scheduler = deepspeed.initialize(
-            model=model,
-            model_parameters=model.parameters(),
-            args=params,
-            mpu=None,
-            dist_init_required=False,
-            config=deepspeed_config,
-        )
-    else:
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=params.base_lr, weight_decay=1e-2
-        )
-        scheduler = _get_scheduler(optimizer)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=params.base_lr, weight_decay=1e-2
+    )
+    scheduler = _get_scheduler(optimizer)
 
     checkpoints = load_checkpoint_if_available(
         params=params, model=model, model_avg=model_avg
@@ -851,10 +809,7 @@ def run(rank, world_size, args):
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
-        if params.deepspeed:
-            optimizer.load_state_dict({rank: checkpoints["optimizer"]})
-        else:
-            optimizer.load_state_dict(checkpoints["optimizer"])
+        optimizer.load_state_dict(checkpoints["optimizer"])
 
     if (
         checkpoints
@@ -985,11 +940,8 @@ def scan_pessimistic_batches_for_oom(
                     batch=batch,
                     is_training=True,
                 )
-            if params.deepspeed:
-                model.backward(loss)
-            else:
-                loss.backward()
-                optimizer.zero_grad()
+            loss.backward()
+            optimizer.zero_grad()
         except Exception as e:
             if "CUDA out of memory" in str(e):
                 logging.error(
