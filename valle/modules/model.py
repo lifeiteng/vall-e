@@ -394,12 +394,12 @@ class VALLE(VALLF):
         x_attn_mask = F.pad(
             torch.zeros((x_len, x_len), dtype=torch.bool),
             (0, y_len),
-            value=False,
+            value=True,
         )
         y_attn_mask = F.pad(
             torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
             (x_len, 0),
-            value=True,
+            value=False,
         )
         xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0).to(
             y.device
@@ -511,14 +511,14 @@ class VALLE(VALLF):
             x_attn_mask_pad = F.pad(
                 x_attn_mask,
                 (0, y_len),
-                value=False,
+                value=True,
             )
             y_attn_mask = F.pad(
                 torch.triu(
                     torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1
                 ),
                 (x_len, 0),
-                value=True,
+                value=False,
             )
             xy_attn_mask = torch.concat(
                 [x_attn_mask_pad, y_attn_mask], dim=0
