@@ -246,6 +246,14 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--accumulate-grad-steps",
+        type=int,
+        default=1,
+        help="""update gradient when batch_idx_train % accumulate_grad_steps == 0.
+        """,
+    )
+
+    parser.add_argument(
         "--use-fp16",
         type=str2bool,
         default=False,
@@ -463,7 +471,7 @@ def compute_loss(
     assert audio_features.ndim == 3
 
     with torch.set_grad_enabled(is_training):
-        _, loss = model(
+        _, loss, metrics = model(
             x=text_tokens,
             x_lens=text_tokens_lens,
             y=audio_features,
@@ -479,6 +487,8 @@ def compute_loss(
 
     # Note: We use reduction=sum while computing the loss.
     info["loss"] = loss.detach().cpu().item()
+    for metric in metrics:
+        info[metric] = metrics[metric].detach().cpu().item()
 
     return loss, info
 
@@ -571,6 +581,9 @@ def train_one_epoch(
             batch = next(iter_dl)
         except StopIteration:
             logging.info("Reaches end of dataloader.")
+            if params.batch_idx_train % params.accumulate_grad_steps:
+                scaler.step(optimizer)
+                optimizer.zero_grad()
             break
 
         batch_idx += 1
@@ -593,14 +606,15 @@ def train_one_epoch(
             # in the batch and there is no normalization to it so far.
 
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-            scheduler.step()
-            # scheduler.step_batch(params.batch_idx_train)
+            if params.batch_idx_train >= params.accumulate_grad_steps:
+                if params.batch_idx_train % params.accumulate_grad_steps == 0:
+                    scaler.step(optimizer)
+                    optimizer.zero_grad()
+                    scaler.update()
+                scheduler.step()
+                # scheduler.step_batch(params.batch_idx_train)
 
             set_batch_count(model, params.batch_idx_train)
-
         except:  # noqa
             display_and_save_batch(batch, params=params)
             raise
@@ -664,8 +678,8 @@ def train_one_epoch(
                 f"batch {batch_idx}, train_loss[{loss_info}], "
                 f"tot_loss[{tot_loss}], "
                 f"batch size: {batch_size}, "
-                f"lr: {cur_lr:.2e}, "
-                + (f"grad_scale: {cur_grad_scale}" if params.use_fp16 else "")
+                f"lr: {cur_lr:.2e}"
+                + (f", grad_scale: {cur_grad_scale}" if params.use_fp16 else "")
             )
 
             if tb_writer is not None:

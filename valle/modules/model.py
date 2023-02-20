@@ -20,6 +20,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from icefall.utils import AttributeDict, make_pad_mask
+from torchmetrics.classification import MulticlassAccuracy
 
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 from valle.modules.transformer import (
@@ -72,9 +73,11 @@ class VALLF(nn.Module):
         )  # W_a
         self.audio_position = SinePositionalEmbedding(d_model)
 
-        self.stage_embeddings = TokenEmbedding(d_model, 8)
+        self.stage_embeddings = nn.ModuleList(
+            [TokenEmbedding(d_model, 1) for i in range(8)]
+        )
 
-        norm_first = False
+        norm_first = True
         final_norm = (
             AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
             if norm_first
@@ -112,6 +115,14 @@ class VALLF(nn.Module):
 
         self.rng = random.Random(0)
 
+        self.ar_accuracy_metric = MulticlassAccuracy(
+            NUM_AUDIO_TOKENS + 1, top_k=10
+        )
+
+        self.nar_accuracy_metric = MulticlassAccuracy(
+            NUM_AUDIO_TOKENS + 1, top_k=10, ignore_index=NUM_AUDIO_TOKENS
+        )
+
     def forward(
         self,
         x: torch.Tensor,
@@ -133,7 +144,7 @@ class VALLF(nn.Module):
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
         Returns:
-          Return the predicted audio code matrix and cross-entropy loss.
+          Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
@@ -148,7 +159,7 @@ class VALLF(nn.Module):
         x = self.text_embedding(x)
         x = self.text_position(x)
 
-        total_loss = 0.0
+        total_loss, metrics = 0.0, {}
 
         y_mask = make_pad_mask(y_lens).to(y.device)
         y_mask_int = y_mask.type(torch.int64)
@@ -159,12 +170,14 @@ class VALLF(nn.Module):
         # AR Decoder
         ar_decoder_block = self.decoder_blocks[0]
 
-        def pad_y_eos(y, y_lens, eos_id):
-            y = F.pad(y, (0, 1)) + eos_id * F.pad(y_mask_int, (0, 1), value=1)
+        def pad_y_eos(y, eos_id):
+            y = F.pad(y, (0, 1), value=0) + eos_id * F.pad(
+                y_mask_int, (0, 1), value=1
+            )
             # inputs, targets
             return y[:, :-1], y[:, 1:]
 
-        y, targets = pad_y_eos(codes[..., 0], y_lens, eos_id=NUM_AUDIO_TOKENS)
+        y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
         y_pos = self.audio_position(y_emb)
 
@@ -174,22 +187,19 @@ class VALLF(nn.Module):
             diagonal=1,
         )
         y_dec, _ = ar_decoder_block(
-            (y_pos, self.stage_embeddings.embedding(0)),
+            (y_pos, self.stage_embeddings[0].weight),
             x,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=y_mask,
             memory_mask=None,
             memory_key_padding_mask=x_mask,
         )
-        logits = self.predict_layers[0](y_dec)
-        logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
+        logits = self.predict_layers[0](y_dec).permute(0, 2, 1)
         # loss
-        total_loss = F.cross_entropy(
-            logits, targets.reshape([-1]), reduction=reduction
+        total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+        metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
+            logits.detach(), targets
         )
-        # samples = [
-        #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
-        # ]
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -201,23 +211,31 @@ class VALLF(nn.Module):
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
         y_dec, _ = self.decoder_blocks[1](
-            (y_pos, self.stage_embeddings.embedding(train_stage)),
+            (y_pos, self.stage_embeddings[train_stage].weight),
             x,
             tgt_mask=None,
             tgt_key_padding_mask=y_mask,
             memory_mask=None,
             memory_key_padding_mask=x_mask,
         )
-        logits = self.predict_layers[train_stage](y_dec)
+        logits = self.predict_layers[train_stage](y_dec).permute(0, 2, 1)
         # loss
         total_loss += F.cross_entropy(
-            logits.permute(0, 2, 1),
+            logits,
             targets,
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
+        metrics[f"Nar{train_stage}Top10Accuracy"] = self.nar_accuracy_metric(
+            F.pad(
+                logits.detach(),
+                (0, 0, 1, 0, 0, 0),
+                value=logits.min().cpu().item(),
+            ),
+            targets,
+        )
 
-        return (codes, total_loss / 2.0)
+        return (codes, total_loss / 2.0, metrics)
 
     def inference(
         self,
@@ -267,7 +285,7 @@ class VALLF(nn.Module):
             )
 
             y_dec, _ = self.decoder_blocks[0](
-                (y_pos, self.stage_embeddings.embedding(0)),
+                (y_pos, self.stage_embeddings[0].weight),
                 x,
                 tgt_mask=tgt_mask,
                 memory_mask=None,
@@ -297,7 +315,7 @@ class VALLF(nn.Module):
             )
         ):
             y_dec, _ = nar_decoder_block(
-                (y_pos, self.stage_embeddings.embedding(i + 1)),
+                (y_pos, self.stage_embeddings[i + 1].weight),
                 x,
                 tgt_mask=None,
                 memory_mask=None,
@@ -365,7 +383,7 @@ class VALLE(VALLF):
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
         Returns:
-          Return the predicted audio code matrix and cross-entropy loss.
+          Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
@@ -380,17 +398,19 @@ class VALLE(VALLF):
         x = self.text_embedding(x)
         x = self.text_position(x)
 
-        total_loss = 0.0
+        total_loss, metrics = 0.0, {}
 
         y_mask = make_pad_mask(y_lens).to(y.device)
         y_mask_int = y_mask.type(torch.int64)
 
         codes = y.type(torch.int64) * (1 - y_mask_int.unsqueeze(dim=-1))
 
-        xy_padding_mask = torch.concat([x_mask, y_mask], dim=1)
-
         x_len = x_lens.max()
         y_len = y_lens.max()
+
+        xy_padding_mask = torch.concat([x_mask, y_mask], dim=1)
+        # xy_padding_mask = F.pad(y_mask, (x_len, 0), value=False)
+
         x_attn_mask = F.pad(
             torch.zeros((x_len, x_len), dtype=torch.bool),
             (0, y_len),
@@ -407,32 +427,29 @@ class VALLE(VALLF):
 
         # Training
         # AR Decoder
-        def pad_y_eos(y, y_lens, eos_id):
+        def pad_y_eos(y, eos_id):
             y = F.pad(y, (0, 1)) + eos_id * F.pad(y_mask_int, (0, 1), value=1)
             # inputs, targets
             return y[:, :-1], y[:, 1:]
 
-        y, targets = pad_y_eos(codes[..., 0], y_lens, eos_id=NUM_AUDIO_TOKENS)
+        y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
         y_pos = self.audio_position(y_emb)
 
         xy_pos = torch.concat([x, y_pos], dim=1)
 
         xy_dec, _ = self.decoder_blocks[0](
-            (xy_pos, self.stage_embeddings.embedding(0)),
+            (xy_pos, self.stage_embeddings[0].weight),
             mask=xy_attn_mask,
             src_key_padding_mask=xy_padding_mask,
             # is_causal=True,
         )
-        logits = self.predict_layers[0](xy_dec[:, x_len:])
-        logits = logits.reshape([-1, NUM_AUDIO_TOKENS + 1])
+        logits = self.predict_layers[0](xy_dec[:, x_len:]).permute(0, 2, 1)
         # loss
-        total_loss = F.cross_entropy(
-            logits, targets.reshape([-1]), reduction=reduction
+        total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+        metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
+            logits.detach(), targets
         )
-        # samples = [
-        #     torch.multinomial(F.softmax(logits, dim=1), num_samples=1)
-        # ]
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -447,21 +464,31 @@ class VALLE(VALLF):
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
         xy_dec, _ = self.decoder_blocks[1](
-            (xy_pos, self.stage_embeddings.embedding(train_stage)),
+            (xy_pos, self.stage_embeddings[train_stage].weight),
             src_key_padding_mask=xy_padding_mask,
             # is_causal=False,
         )
-        logits = self.predict_layers[train_stage](xy_dec[:, x_len:])
+        logits = self.predict_layers[train_stage](xy_dec[:, x_len:]).permute(
+            0, 2, 1
+        )
 
         # loss
         total_loss += F.cross_entropy(
-            logits.permute(0, 2, 1),
+            logits,
             targets,
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
+        metrics[f"Nar{train_stage}Top10Accuracy"] = self.nar_accuracy_metric(
+            F.pad(
+                logits.detach(),
+                (0, 0, 1, 0, 0, 0),
+                value=logits.min().cpu().item(),
+            ),
+            targets,
+        )
 
-        return (codes, total_loss / 2.0)
+        return (codes, total_loss / 2.0, metrics)
 
     def inference(
         self,
@@ -525,7 +552,7 @@ class VALLE(VALLF):
             ).to(y.device)
 
             xy_dec, _ = self.decoder_blocks[0](
-                (xy_pos, self.stage_embeddings.embedding(0)),
+                (xy_pos, self.stage_embeddings[0].weight),
                 mask=xy_attn_mask,
             )
             logits = self.predict_layers[0](xy_dec[:, -1:])
@@ -563,7 +590,7 @@ class VALLE(VALLF):
             )
         ):
             xy_dec, _ = nar_decoder_block(
-                (xy_pos, self.stage_embeddings.embedding(i + 1))
+                (xy_pos, self.stage_embeddings[i + 1].weight)
             )
             logits = predict_layer(xy_dec[:, prompts_len:])
 
@@ -644,7 +671,8 @@ if __name__ == "__main__":
     print(f"Number of {params.model_name} parameters: {num_param}")
 
     # Training
-    codes, loss = model(x, x_lens, y, y_lens)
+    codes, loss, metrics = model(x, x_lens, y, y_lens)
+    print(f"metrics {metrics}")
 
     # Inference
     model.eval()
@@ -657,7 +685,8 @@ if __name__ == "__main__":
     print(f"Number of {params.model_name} parameters: {num_param}")
 
     # Training
-    codes, loss = model(x, x_lens, y, y_lens)
+    codes, loss, metrics = model(x, x_lens, y, y_lens)
+    print(f"metrics {metrics}")
 
     # Inference
     model.eval()

@@ -45,6 +45,8 @@ To get up and running quickly just follow the steps below:
 ```
 # PyTorch
 pip install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+pip install torchvision==0.13.1 --no-deps
+pip install torchmetrics==0.11.1
 
 # phonemizer
 apt-get install espeak-ng
