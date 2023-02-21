@@ -28,6 +28,7 @@ use_fp16=true
 num_decoder_layers=12
 
 accumulate_grad_steps=1
+base_lr=2.0
 
 . shared/parse_options.sh || exit 1
 
@@ -121,6 +122,6 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
 
   python3 bin/trainer.py --max-duration ${max_duration} --use-fp16 ${use_fp16} \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
-    --model-name "${model_name}" --accumulate_grad_steps ${accumulate_grad_steps} \
-    --exp-dir exp/${model_name}
+    --accumulate_grad_steps ${accumulate_grad_steps} --base-lr ${base_lr} \
+    --model-name "${model_name}" --exp-dir exp/${model_name}
 fi

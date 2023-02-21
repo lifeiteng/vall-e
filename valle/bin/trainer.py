@@ -89,6 +89,7 @@ def calc_lr(step, dim_embed, warmup_steps):
 class Scheduler(torch.optim.lr_scheduler._LRScheduler):
     def __init__(
         self,
+        base_lr: float,
         optimizer: torch.optim.Optimizer,
         dim_embed: int,
         warmup_steps: int,
@@ -97,13 +98,16 @@ class Scheduler(torch.optim.lr_scheduler._LRScheduler):
     ) -> None:
 
         self.dim_embed = dim_embed
+        self.base_lr = base_lr
         self.warmup_steps = warmup_steps
         self.num_param_groups = len(optimizer.param_groups)
 
         super().__init__(optimizer, last_epoch, verbose)
 
     def get_lr(self) -> float:
-        lr = calc_lr(self._step_count, self.dim_embed, self.warmup_steps)
+        lr = self.base_lr * calc_lr(
+            self._step_count, self.dim_embed, self.warmup_steps
+        )
         return [lr] * self.num_param_groups
 
     def set_step(self, step: int):
@@ -183,7 +187,7 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--base-lr", type=float, default=0.0001, help="The base learning rate."
+        "--base-lr", type=float, default=1.0, help="The base learning rate."
     )
 
     parser.add_argument(
@@ -608,11 +612,19 @@ def train_one_epoch(
             scaler.scale(loss).backward()
             if params.batch_idx_train >= params.accumulate_grad_steps:
                 if params.batch_idx_train % params.accumulate_grad_steps == 0:
+                    if True:
+                        # Unscales the gradients of optimizer's assigned params in-place
+                        scaler.unscale_(optimizer)
+                        # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
                     scaler.step(optimizer)
                     optimizer.zero_grad()
                     scaler.update()
-                scheduler.step()
-                # scheduler.step_batch(params.batch_idx_train)
+
+                    for k in range(params.accumulate_grad_steps):
+                        scheduler.step()
+                        # scheduler.step_batch(params.batch_idx_train)
 
             set_batch_count(model, params.batch_idx_train)
         except:  # noqa
@@ -805,6 +817,7 @@ def run(rank, world_size, args):
 
     def _get_scheduler(optimizer):
         scheduler = Scheduler(
+            params.base_lr,
             optimizer,
             dim_embed=params.decoder_dim,
             warmup_steps=params.warmup_steps,
@@ -813,8 +826,13 @@ def run(rank, world_size, args):
         return scheduler
 
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=params.base_lr, weight_decay=1e-2
+        model.parameters(),
+        lr=params.base_lr,
+        betas=(0.9, 0.95),
+        eps=1e-8,
+        weight_decay=1e-2,
     )
+
     scheduler = _get_scheduler(optimizer)
 
     checkpoints = load_checkpoint_if_available(
