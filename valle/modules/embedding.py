@@ -35,7 +35,7 @@ class TokenEmbedding(nn.Module):
         self.init_weights()
 
     def init_weights(self, gain: float = 1.0):
-        torch.nn.init.normal_(self.word_embeddings.weight, std=0.02 * gain)
+        torch.nn.init.normal_(self.word_embeddings.weight, std=gain)
 
     @property
     def weight(self) -> torch.Tensor:
@@ -55,6 +55,7 @@ class SinePositionalEmbedding(nn.Module):
     def __init__(self, dim_model: int):
         super().__init__()
         self.dim_model = dim_model
+        self.alpha = nn.Parameter(torch.ones(1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         seq_len = x.shape[1]
@@ -77,4 +78,4 @@ class SinePositionalEmbedding(nn.Module):
 
         output = x.unsqueeze(-1) if x.ndim == 2 else x
 
-        return output + pos.unsqueeze(0)
+        return output + self.alpha * pos.unsqueeze(0)
