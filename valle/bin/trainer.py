@@ -19,23 +19,10 @@
 # limitations under the License.
 """
 Usage:
-
-export CUDA_VISIBLE_DEVICES="0,1,2,3"
-
-cd egs/libritts
-./prepare.sh
-
-# nano config
 python3 bin/trainer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
+    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
     --max-duration 40 --model-name valle \
-    --exp-dir exp/valle_nano
-
-# For mix precision training:
-python3 bin/trainer.py \
-    --decoder-dim 128 --nhead 4 --num-decoder-layers 4 \
-    --max-duration 40 --model-name valle \
-    --exp-dir exp/valle_nano
+    --exp-dir exp/valle
     --use-fp16 1 \
 """
 
