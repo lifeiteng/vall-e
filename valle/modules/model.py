@@ -78,27 +78,33 @@ class VALLF(nn.Module):
         )
 
         norm_first = True
-        final_norm = (
-            AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
+        self.ar_decoder = decoder_cls(
+            decoder_layer_cls(
+                d_model,
+                nhead,
+                dim_feedforward=d_model * 4,
+                dropout=0.1,
+                batch_first=True,
+                norm_first=norm_first,
+            ),
+            num_layers=num_layers,
+            norm=AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
             if norm_first
-            else None
+            else None,
         )
-        self.decoder_blocks = nn.ModuleList(
-            [
-                decoder_cls(
-                    decoder_layer_cls(
-                        d_model,
-                        nhead,
-                        dim_feedforward=d_model * 4,
-                        dropout=0.1,
-                        batch_first=True,
-                        norm_first=norm_first,
-                    ),
-                    num_layers=num_layers,
-                    norm=final_norm,
-                )
-                for i in range(2)
-            ]
+        self.nar_decoder = decoder_cls(
+            decoder_layer_cls(
+                d_model,
+                nhead,
+                dim_feedforward=d_model * 4,
+                dropout=0.1,
+                batch_first=True,
+                norm_first=norm_first,
+            ),
+            num_layers=num_layers,
+            norm=AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
+            if norm_first
+            else None,
         )
 
         self.predict_layers = nn.ModuleList(
@@ -168,8 +174,6 @@ class VALLF(nn.Module):
 
         # Training
         # AR Decoder
-        ar_decoder_block = self.decoder_blocks[0]
-
         def pad_y_eos(y, eos_id):
             y = F.pad(y, (0, 1), value=0) + eos_id * F.pad(
                 y_mask_int, (0, 1), value=1
@@ -186,7 +190,7 @@ class VALLF(nn.Module):
             torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
             diagonal=1,
         )
-        y_dec, _ = ar_decoder_block(
+        y_dec, _ = self.ar_decoder(
             (y_pos, self.stage_embeddings[0].weight),
             x,
             tgt_mask=tgt_mask,
@@ -210,7 +214,7 @@ class VALLF(nn.Module):
             y_pos = y_pos + self.audio_embeddings[i + 1](codes[..., i + 1])
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
-        y_dec, _ = self.decoder_blocks[1](
+        y_dec, _ = self.nar_decoder(
             (y_pos, self.stage_embeddings[train_stage].weight),
             x,
             tgt_mask=None,
@@ -284,7 +288,7 @@ class VALLF(nn.Module):
                 diagonal=1,
             )
 
-            y_dec, _ = self.decoder_blocks[0](
+            y_dec, _ = self.ar_decoder(
                 (y_pos, self.stage_embeddings[0].weight),
                 x,
                 tgt_mask=tgt_mask,
@@ -307,14 +311,13 @@ class VALLF(nn.Module):
 
         codes = [y[:, prompts_len:]]
         # Non-AR Decoders
-        nar_decoder_block = self.decoder_blocks[1]
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            y_dec, _ = nar_decoder_block(
+            y_dec, _ = self.nar_decoder(
                 (y_pos, self.stage_embeddings[i + 1].weight),
                 x,
                 tgt_mask=None,
@@ -438,7 +441,7 @@ class VALLE(VALLF):
 
         xy_pos = torch.concat([x, y_pos], dim=1)
 
-        xy_dec, _ = self.decoder_blocks[0](
+        xy_dec, _ = self.ar_decoder(
             (xy_pos, self.stage_embeddings[0].weight),
             mask=xy_attn_mask,
             src_key_padding_mask=xy_padding_mask,
@@ -463,7 +466,7 @@ class VALLE(VALLF):
         xy_pos = torch.concat([x, y_pos], dim=1)
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
-        xy_dec, _ = self.decoder_blocks[1](
+        xy_dec, _ = self.nar_decoder(
             (xy_pos, self.stage_embeddings[train_stage].weight),
             src_key_padding_mask=xy_padding_mask,
             # is_causal=False,
@@ -551,7 +554,7 @@ class VALLE(VALLF):
                 [x_attn_mask_pad, y_attn_mask], dim=0
             ).to(y.device)
 
-            xy_dec, _ = self.decoder_blocks[0](
+            xy_dec, _ = self.ar_decoder(
                 (xy_pos, self.stage_embeddings[0].weight),
                 mask=xy_attn_mask,
             )
@@ -582,14 +585,13 @@ class VALLE(VALLF):
 
         codes = [y[:, prompts.shape[1] :]]
         # Non-AR Decoders
-        nar_decoder_block = self.decoder_blocks[1]
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.predict_layers[1:],
                 self.audio_embeddings[1:] + [None],
             )
         ):
-            xy_dec, _ = nar_decoder_block(
+            xy_dec, _ = self.nar_decoder(
                 (xy_pos, self.stage_embeddings[i + 1].weight)
             )
             logits = predict_layer(xy_dec[:, prompts_len:])
