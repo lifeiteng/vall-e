@@ -226,7 +226,7 @@ class VALLF(nn.Module):
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
-        metrics[f"Nar{train_stage}Top10Accuracy"] = self.nar_accuracy_metric(
+        metrics["NarTop10Accuracy"] = self.nar_accuracy_metric(
             F.pad(
                 logits.detach(),
                 (0, 0, 1, 0, 0, 0),
@@ -479,7 +479,7 @@ class VALLE(VALLF):
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
-        metrics[f"Nar{train_stage}Top10Accuracy"] = self.nar_accuracy_metric(
+        metrics["NarTop10Accuracy"] = self.nar_accuracy_metric(
             F.pad(
                 logits.detach(),
                 (0, 0, 1, 0, 0, 0),
