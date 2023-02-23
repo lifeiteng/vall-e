@@ -63,6 +63,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from valle.data import TtsDataModule
 from valle.modules import add_model_arguments, get_model
+from valle.modules.optim import Eden, Eve, ScaledAdam
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
 
@@ -174,15 +175,20 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--base-lr", type=float, default=1.0, help="The base learning rate."
+        "--base-lr", type=float, default=0.05, help="The base learning rate."
     )
-
     parser.add_argument(
         "--warmup-steps",
         type=int,
-        default=32000,
+        default=5000,
         help="""Number of steps that affects how rapidly the learning rate
         decreases. We suggest not to change this.""",
+    )
+    parser.add_argument(
+        "--optimizer-name",
+        type=str,
+        default="ScaledAdam",
+        help="The optimizer.",
     )
 
     parser.add_argument(
@@ -574,6 +580,7 @@ def train_one_epoch(
             logging.info("Reaches end of dataloader.")
             if params.batch_idx_train % params.accumulate_grad_steps:
                 scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
             break
 
@@ -599,19 +606,21 @@ def train_one_epoch(
             scaler.scale(loss).backward()
             if params.batch_idx_train >= params.accumulate_grad_steps:
                 if params.batch_idx_train % params.accumulate_grad_steps == 0:
-                    if True:
+                    if params.optimizer_name not in ["ScaledAdam", "Eve"]:
                         # Unscales the gradients of optimizer's assigned params in-place
                         scaler.unscale_(optimizer)
                         # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
                     scaler.step(optimizer)
-                    optimizer.zero_grad()
                     scaler.update()
+                    optimizer.zero_grad()
 
                     for k in range(params.accumulate_grad_steps):
-                        scheduler.step()
-                        # scheduler.step_batch(params.batch_idx_train)
+                        if isinstance(scheduler, Eden):
+                            scheduler.step_batch(params.batch_idx_train)
+                        else:
+                            scheduler.step()
 
             set_batch_count(model, params.batch_idx_train)
         except:  # noqa
@@ -812,15 +821,46 @@ def run(rank, world_size, args):
         scheduler.set_step(params.start_batch or params.batch_idx_train)
         return scheduler
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=params.base_lr,
-        betas=(0.9, 0.95),
-        eps=1e-8,
-        weight_decay=1e-2,
-    )
-
-    scheduler = _get_scheduler(optimizer)
+    if params.optimizer_name == "ScaledAdam":
+        parameters_names = []
+        parameters_names.append(
+            [name_param_pair[0] for name_param_pair in model.named_parameters()]
+        )
+        optimizer = ScaledAdam(
+            model.parameters(),
+            lr=params.base_lr,
+            betas=(0.9, 0.95),
+            clipping_scale=2.0,
+            parameters_names=parameters_names,
+            show_dominant_parameters=False,
+        )
+        scheduler = Eden(optimizer, params.warmup_steps, 4)
+    elif params.optimizer_name == "Eve":
+        optimizer = Eve(
+            model.parameters(),
+            lr=params.base_lr,
+            betas=(0.9, 0.98),
+        )
+        scheduler = Eden(optimizer, params.warmup_steps, 4)
+    elif params.optimizer_name == "AdamW":
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=params.base_lr,
+            betas=(0.9, 0.95),
+            eps=1e-8,
+            weight_decay=1e-2,
+        )
+        scheduler = _get_scheduler(optimizer)
+    elif params.optimizer_name == "Adam":
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=params.base_lr,
+            betas=(0.9, 0.95),
+            eps=1e-8,
+        )
+        scheduler = _get_scheduler(optimizer)
+    else:
+        raise NotImplementedError()
 
     checkpoints = load_checkpoint_if_available(
         params=params, model=model, model_avg=model_avg

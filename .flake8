@@ -19,3 +19,4 @@ exclude =
   egs/**/data/**,
   setup.py,
   valle/utils/symbol_table.py,
+  valle/modules/optim.py,
