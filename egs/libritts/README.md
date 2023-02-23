@@ -1,11 +1,18 @@
-# Prepare Dataset
+# LibriTTS
+
+## Install deps
+```
+pip install librosa==0.8.1
+```
+
+## Prepare Dataset
 ```
 cd egs/libritts
 
 # Those stages are very time-consuming
 bash run.sh --stage -1 --stop-stage 3
 ```
-# Training
+## Training
 
 ```
 # 12G GPU --max-duration 24 --num-decoder-layers 6
@@ -15,7 +22,7 @@ bash run.sh --stage 4 --stop-stage 4 \
 ```
 ![train](./demos/train.png)
 
-# Inference
+## Inference
 * checkpoint `exp/valle/epoch-10.pt` will be added.
 
 ```

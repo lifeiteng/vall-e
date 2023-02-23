@@ -38,6 +38,7 @@ from torch.utils.data import DataLoader
 
 from valle.data.collation import get_text_token_collater
 from valle.data.dataset import SpeechSynthesisDataset
+from valle.data.fbank import get_fbank_extractor
 
 PrecomputedFeatures = PrecomputedFeatures
 
@@ -260,13 +261,6 @@ class TtsDataModule:
             logging.info("Disable SpecAugment")
 
         logging.info("About to create train dataset")
-        train = SpeechSynthesisDataset(
-            get_text_token_collater(self.args.text_tokens),
-            feature_input_strategy=eval(self.args.input_strategy)(),
-            cut_transforms=transforms,
-            feature_transforms=input_transforms,
-        )
-
         if self.args.on_the_fly_feats:
             # NOTE: the PerturbSpeed transform should be added only if we
             # remove it from data prep stage.
@@ -278,12 +272,17 @@ class TtsDataModule:
             # to be strict (e.g. could be randomized)
             # transforms = [PerturbSpeed(factors=[0.9, 1.1], p=2/3)] + transforms   # noqa
             # Drop feats to be on the safe side.
-            raise NotImplementedError
-
             train = SpeechSynthesisDataset(
                 get_text_token_collater(self.args.text_tokens),
                 cut_transforms=transforms,
-                feature_input_strategy=OnTheFlyFeatures("TODO"),
+                feature_input_strategy=OnTheFlyFeatures(get_fbank_extractor()),
+                feature_transforms=input_transforms,
+            )
+        else:
+            train = SpeechSynthesisDataset(
+                get_text_token_collater(self.args.text_tokens),
+                feature_input_strategy=eval(self.args.input_strategy)(),
+                cut_transforms=transforms,
                 feature_transforms=input_transforms,
             )
 
@@ -333,9 +332,8 @@ class TtsDataModule:
         if self.args.on_the_fly_feats:
             validate = SpeechSynthesisDataset(
                 get_text_token_collater(self.args.text_tokens),
+                feature_input_strategy=OnTheFlyFeatures(get_fbank_extractor()),
                 cut_transforms=[],
-                feature_input_strategy=OnTheFlyFeatures("TODO"),
-                return_cuts=self.args.return_cuts,
             )
         else:
             validate = SpeechSynthesisDataset(
@@ -362,7 +360,7 @@ class TtsDataModule:
         logging.debug("About to create test dataset")
         test = SpeechSynthesisDataset(
             get_text_token_collater(self.args.text_tokens),
-            feature_input_strategy=OnTheFlyFeatures("TODO")
+            feature_input_strategy=OnTheFlyFeatures(get_fbank_extractor())
             if self.args.on_the_fly_feats
             else eval(self.args.input_strategy)(),
             cut_transforms=[],

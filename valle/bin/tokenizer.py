@@ -37,6 +37,7 @@ from valle.data import (
     TextTokenizer,
     tokenize_text,
 )
+from valle.data.fbank import get_fbank_extractor
 from valle.utils import SymbolTable
 
 # Torch's multithreaded behavior needs to be disabled or
@@ -61,6 +62,12 @@ def get_args():
         type=Path,
         default=Path("data/tokenized"),
         help="Path to the tokenized files",
+    )
+    parser.add_argument(
+        "--audio-extractor",
+        type=str,
+        default="Encodec",
+        help="Encodec or Fbank",
     )
     parser.add_argument(
         "--dataset-parts",
@@ -121,7 +128,13 @@ def main():
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     unique_symbols = set()
-    extractor = AudioTokenExtractor(AudioTokenConfig())
+
+    if args.audio_extractor == "Encodec":
+        extractor = AudioTokenExtractor(AudioTokenConfig())
+    else:
+        assert args.audio_extractor == "Fbank"
+        extractor = get_fbank_extractor()
+
     with get_executor() as ex:
         for partition, m in manifests.items():
             logging.info(
@@ -133,9 +146,15 @@ def main():
             )
 
             # Tokenize Audio
-            storage_path = (
-                f"{args.output_dir}/{args.prefix}_encodec_{partition}"
-            )
+            if args.audio_extractor == "Encodec":
+                storage_path = (
+                    f"{args.output_dir}/{args.prefix}_encodec_{partition}"
+                )
+            else:
+                storage_path = (
+                    f"{args.output_dir}/{args.prefix}_fbank_{partition}"
+                )
+
             with torch.no_grad():
                 cut_set = cut_set.compute_and_store_features(
                     extractor=extractor,

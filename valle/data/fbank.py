@@ -21,7 +21,7 @@ from typing import Any, Dict, Optional, Union
 import numpy as np
 import torch
 from lhotse.features.base import FeatureExtractor
-from lhotse.utils import EPSILON, Seconds
+from lhotse.utils import EPSILON, Seconds, compute_num_frames
 from librosa.filters import mel as librosa_mel_fn
 
 
@@ -75,13 +75,35 @@ class BigVGANFbank(FeatureExtractor):
         self.hann_window = torch.hann_window(1024)
 
     def _feature_fn(self, samples, **kwargs):
-        n_fft = 1024
+        win_length, n_fft = 1024, 1024
         hop_size = 256
-        y = torch.nn.functional.pad(
-            samples,
-            (int((n_fft - hop_size) / 2), int((n_fft - hop_size) / 2)),
-            mode="reflect",
-        )
+        if True:
+            sampling_rate = 24000
+            duration = round(samples.shape[-1] / sampling_rate, ndigits=12)
+            expected_num_frames = compute_num_frames(
+                duration=duration,
+                frame_shift=self.frame_shift,
+                sampling_rate=sampling_rate,
+            )
+            pad_size = (
+                (expected_num_frames - 1) * hop_size
+                + win_length
+                - samples.shape[-1]
+            )
+            assert pad_size >= 0
+
+            y = torch.nn.functional.pad(
+                samples,
+                (0, pad_size),
+                mode="constant",
+            )
+        else:
+            y = torch.nn.functional.pad(
+                samples,
+                (int((n_fft - hop_size) / 2), int((n_fft - hop_size) / 2)),
+                mode="reflect",
+            )
+
         y = y.squeeze(1)
 
         # complex tensor as default, then use view_as_real for future pytorch compatibility
@@ -89,7 +111,7 @@ class BigVGANFbank(FeatureExtractor):
             y,
             n_fft,
             hop_length=hop_size,
-            win_length=1024,
+            win_length=win_length,
             window=self.hann_window,
             center=False,
             pad_mode="reflect",
@@ -103,7 +125,7 @@ class BigVGANFbank(FeatureExtractor):
         spec = torch.matmul(self.mel_basis, spec)
         spec = spectral_normalize_torch(spec)
 
-        return spec.transpose(2, 1)
+        return spec.transpose(2, 1).squeeze(0)
 
     def extract(
         self, samples: Union[np.ndarray, torch.Tensor], sampling_rate: int
@@ -148,6 +170,10 @@ class BigVGANFbank(FeatureExtractor):
         return float(np.sum(np.exp(features)))
 
 
+def get_fbank_extractor() -> BigVGANFbank:
+    return BigVGANFbank(BigVGANFbankConfig())
+
+
 if __name__ == "__main__":
     extractor = BigVGANFbank(BigVGANFbankConfig())
 
@@ -171,7 +197,7 @@ if __name__ == "__main__":
 
     _ = plt.figure(figsize=(18, 10))
     plt.imshow(
-        X=fbank.transpose(0, 2, 1)[0],
+        X=fbank.transpose(1, 0),
         cmap=plt.get_cmap("jet"),
         aspect="auto",
         interpolation="nearest",

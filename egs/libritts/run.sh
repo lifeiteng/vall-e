@@ -30,6 +30,10 @@ num_decoder_layers=12
 accumulate_grad_steps=1
 base_lr=2.0
 
+
+audio_extractor="Encodec"  # or Fbank
+audio_feats_dir=data/tokenized
+
 . shared/parse_options.sh || exit 1
 
 
@@ -72,55 +76,58 @@ fi
 
 
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
-  log "Stage 2: Tokenize LibriTTS"
-  mkdir -p data/tokenized
-  if [ ! -e data/tokenized/.libritts.tokenize.done ]; then
+  log "Stage 2: Tokenize/Fbank LibriTTS"
+  mkdir -p ${audio_feats_dir}
+  if [ ! -e ${audio_feats_dir}/.libritts.tokenize.done ]; then
     python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
+        --audio-extractor ${audio_extractor} \
         --src-dir "data/manifests" \
-        --output-dir "data/tokenized"
+        --output-dir "${audio_feats_dir}"
   fi
-  touch data/tokenized/.libritts.tokenize.done
+  touch ${audio_feats_dir}/.libritts.tokenize.done
 fi
 
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare LibriTTS train/dev/test"
-  if [ ! -e data/tokenized/.libritts.train.done ]; then
+  if [ ! -e ${audio_feats_dir}/.libritts.train.done ]; then
     if [ "${dataset_parts}" == "--dataset-parts all" ];then
       # train
       lhotse combine \
-        data/tokenized/libritts_cuts_train-clean-100.jsonl.gz \
-        data/tokenized/libritts_cuts_train-clean-360.jsonl.gz \
-        data/tokenized/libritts_cuts_train-other-500.jsonl.gz \
-        data/tokenized/cuts_train.jsonl.gz
+        ${audio_feats_dir}/libritts_cuts_train-clean-100.jsonl.gz \
+        ${audio_feats_dir}/libritts_cuts_train-clean-360.jsonl.gz \
+        ${audio_feats_dir}/libritts_cuts_train-other-500.jsonl.gz \
+        ${audio_feats_dir}/cuts_train.jsonl.gz
 
       # dev
       lhotse copy \
-        data/tokenized/libritts_cuts_dev-clean.jsonl.gz \
-        data/tokenized/cuts_dev.jsonl.gz
+        ${audio_feats_dir}/libritts_cuts_dev-clean.jsonl.gz \
+        ${audio_feats_dir}/cuts_dev.jsonl.gz
     else  # debug
       # train
       lhotse copy \
-        data/tokenized/libritts_cuts_dev-clean.jsonl.gz \
-        data/tokenized/cuts_train.jsonl.gz
+        ${audio_feats_dir}/libritts_cuts_dev-clean.jsonl.gz \
+        ${audio_feats_dir}/cuts_train.jsonl.gz
       # dev
       lhotse subset --first 400 \
-        data/tokenized/libritts_cuts_test-clean.jsonl.gz \
-        data/tokenized/cuts_dev.jsonl.gz
+        ${audio_feats_dir}/libritts_cuts_test-clean.jsonl.gz \
+        ${audio_feats_dir}/cuts_dev.jsonl.gz
     fi
 
     # test
     lhotse copy \
-      data/tokenized/libritts_cuts_test-clean.jsonl.gz \
-      data/tokenized/cuts_test.jsonl.gz
+      ${audio_feats_dir}/libritts_cuts_test-clean.jsonl.gz \
+      ${audio_feats_dir}/cuts_test.jsonl.gz
 
-    touch data/tokenized/.libritts.train.done
+    touch ${audio_feats_dir}/.libritts.train.done
   fi
 fi
 
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   log "Stage 4: Train ${model_name}"
 
-  python3 bin/trainer.py --max-duration ${max_duration} --use-fp16 ${use_fp16} \
+  python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
+    --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
+    --max-duration ${max_duration} --use-fp16 ${use_fp16} \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
     --model-name "${model_name}" --exp-dir exp/${model_name}
