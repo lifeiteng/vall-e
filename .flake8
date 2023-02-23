@@ -13,6 +13,7 @@ per-file-ignores =
     valle/modules/embedding.py: E203,
     valle/bin/tokenizer.py: E501,
     valle/modules/transformer.py: E501,
+    valle/data/fbank.py: E501,
 
 exclude =
   .git,
