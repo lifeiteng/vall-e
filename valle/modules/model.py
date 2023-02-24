@@ -123,11 +123,14 @@ class VALLF(nn.Module):
         self.rng = random.Random(0)
 
         self.ar_accuracy_metric = MulticlassAccuracy(
-            NUM_AUDIO_TOKENS + 1, top_k=10
+            NUM_AUDIO_TOKENS + 1, top_k=10, average="micro"
         )
 
         self.nar_accuracy_metric = MulticlassAccuracy(
-            NUM_AUDIO_TOKENS + 1, top_k=10, ignore_index=NUM_AUDIO_TOKENS
+            NUM_AUDIO_TOKENS + 1,
+            top_k=10,
+            average="micro",
+            ignore_index=NUM_AUDIO_TOKENS,
         )
 
         self.d_model = d_model
