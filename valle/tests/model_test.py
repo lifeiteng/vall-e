@@ -122,7 +122,8 @@ class TestVALLE(unittest.TestCase):
         for device in self.devices:
             metric_top10.to(device)
             metric_top1.to(device)
-            targets.to(device)
+            targets = targets.to(device)
+
             one = metric_top10(larger_logits.to(device), targets)
             assert one.cpu().item() == 1.0, one.cpu().item()
 
@@ -147,7 +148,9 @@ class TestVALLE(unittest.TestCase):
         x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
         x_lens[-1] = 8
 
-        y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
+        y = torch.from_numpy(
+            np.random.random((4, 16, NUM_MEL_BINS)).astype(np.float32)
+        )
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
 
@@ -164,9 +167,6 @@ class TestVALLE(unittest.TestCase):
             y_lens = y_lens.to(device)
 
             # Training
-            y = torch.from_numpy(
-                np.random.random((4, 16, NUM_MEL_BINS)).astype(np.float32)
-            )
             codes, loss, metrics = model(x, x_lens, y, y_lens)
 
 
