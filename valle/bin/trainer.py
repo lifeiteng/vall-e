@@ -62,7 +62,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
 from valle.data import TtsDataModule
-from valle.modules import add_model_arguments, get_model
+from valle.models import add_model_arguments, get_model
 from valle.modules.optim import Eden, Eve, ScaledAdam
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler

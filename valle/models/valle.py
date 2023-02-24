@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
 import random
 from typing import Tuple, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from icefall.utils import AttributeDict, make_pad_mask
+from icefall.utils import make_pad_mask
 from torchmetrics.classification import MulticlassAccuracy
 
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
@@ -133,20 +132,18 @@ class VALLF(nn.Module):
             ignore_index=NUM_AUDIO_TOKENS,
         )
 
-        self.d_model = d_model
+    #     self.apply(self._init_weights)
 
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module):
-        if isinstance(module, (nn.Linear)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-        # elif isinstance(module, nn.Embedding):
-        #     module.weight.data.normal_(mean=0.0, std=0.02 * math.sqrt(self.d_model))
+    # def _init_weights(self, module):
+    #     if isinstance(module, (nn.Linear)):
+    #         module.weight.data.normal_(mean=0.0, std=0.02)
+    #         if isinstance(module, nn.Linear) and module.bias is not None:
+    #             module.bias.data.zero_()
+    #     elif isinstance(module, nn.LayerNorm):
+    #         module.bias.data.zero_()
+    #         module.weight.data.fill_(1.0)
+    #     elif isinstance(module, nn.Embedding):
+    #         module.weight.data.normal_(mean=0.0, std=1.0)
 
     def forward(
         self,
@@ -468,7 +465,11 @@ class VALLE(VALLF):
         )
         logits = self.predict_layers[0](xy_dec[:, x_len:]).permute(0, 2, 1)
         # loss
+        # total_loss = F.cross_entropy(logits, targets, reduction="none")
+        # loss_mask = 1.0 - y_mask.type(torch.float32)
+        # total_loss = torch.sum(total_loss * loss_mask)
         total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
         )
@@ -626,187 +627,3 @@ class VALLE(VALLF):
 
         assert len(codes) == 8
         return torch.stack(codes, dim=-1)
-
-
-class Transformer(nn.Module):
-    """It implements seq2seq TTS for debug"""
-
-    def __init__(
-        self,
-        d_model: int,
-        nhead: int,
-        num_layers: int,
-    ):
-        """
-        Args:
-          d_model:
-            The number of expected features in the input (required).
-          nhead:
-            The number of heads in the multiheadattention models (required).
-          num_layers:
-            The number of sub-decoder-layers in the decoder (required).
-        """
-        super().__init__()
-        self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
-        self.text_position = SinePositionalEmbedding(d_model)
-        self.audio_position = SinePositionalEmbedding(d_model)
-
-        norm_first = True
-        self.encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
-                dropout=0.1,
-                batch_first=True,
-                norm_first=norm_first,
-            ),
-            num_layers=num_layers,
-            norm=nn.LayerNorm(d_model) if norm_first else None,
-        )
-
-        self.project_layer = nn.Linear(NUM_MEL_BINS, d_model)
-        self.decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
-                dropout=0.1,
-                batch_first=True,
-                norm_first=norm_first,
-            ),
-            num_layers=num_layers,
-            norm=nn.LayerNorm(d_model) if norm_first else None,
-        )
-
-        self.predict_layer = nn.Linear(d_model, NUM_MEL_BINS)
-
-        self.d_model = d_model
-
-        self.apply(self._init_weights)
-
-    def _init_weights(self, module):
-        if isinstance(module, (nn.Linear)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-        # elif isinstance(module, nn.Embedding):
-        #     module.weight.data.normal_(mean=0.0, std=0.02 * math.sqrt(self.d_model))
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        x_lens: torch.Tensor,
-        y: torch.Tensor,
-        y_lens: torch.Tensor,
-        reduction: str = "sum",
-    ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
-        """
-        Args:
-          x:
-            A 2-D tensor of shape (N, S).
-          x_lens:
-            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
-            before padding.
-          y:
-            A 3-D tensor of shape (N, T, 8).
-          y_lens:
-            A 1-D tensor of shape (N,). It contains the number of tokens in `x`
-            before padding.
-        Returns:
-          Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
-        """
-        assert x.ndim == 2, x.shape
-        assert x_lens.ndim == 1, x_lens.shape
-        assert y.ndim == 3, y.shape
-        assert y_lens.ndim == 1, y_lens.shape
-
-        assert torch.all(x_lens > 0)
-
-        # NOTE: x has been padded in TextTokenCollater
-        x_mask = make_pad_mask(x_lens).to(x.device)
-
-        x = self.text_embedding(x)
-        x = self.text_position(x)
-        x = self.encoder(x, src_key_padding_mask=x_mask)
-
-        total_loss, metrics = 0.0, {}
-
-        y_mask = make_pad_mask(y_lens).to(y.device)
-
-        # Training
-        # AR Decoder
-        def pad_y(y):
-            y = F.pad(y, (0, 0, 1, 0, 0, 0), value=0)
-            # inputs, targets
-            return y[:, :-1], y[:, 1:]
-
-        y, targets = pad_y(y)
-        y_emb = self.project_layer(y)  # TODO: prenet
-        y_pos = self.audio_position(y_emb)
-
-        y_len = y_lens.max()
-        tgt_mask = torch.triu(
-            torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
-            diagonal=1,
-        )
-        y_dec = self.decoder(
-            y_pos,
-            x,
-            tgt_mask=tgt_mask,
-            memory_key_padding_mask=x_mask,
-        )
-        predict = self.predict_layer(y_dec)
-        # loss
-        pixel_mse = F.mse_loss(predict, targets, reduction="none")
-        loss_mask = 1.0 - y_mask.type(torch.float32).unsqueeze(-1)
-        total_loss = torch.sum(pixel_mse * loss_mask)
-        return (predict, total_loss, metrics)
-
-
-def add_model_arguments(parser: argparse.ArgumentParser):
-    parser.add_argument(
-        "--decoder-dim",
-        type=int,
-        default=1024,
-        help="Embedding dimension in the decoder model.",
-    )
-    parser.add_argument(
-        "--nhead",
-        type=int,
-        default=16,
-        help="Number of attention heads in the Decoder layers.",
-    )
-    parser.add_argument(
-        "--num-decoder-layers",
-        type=int,
-        default=12,
-        help="Number of Decoder layers.",
-    )
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default="VALL-E",
-        help="VALL-E, VALL-F or Transformer.",
-    )
-
-
-def get_model(params: AttributeDict) -> nn.Module:
-    if params.model_name.lower() in ["vall-f", "vallf"]:
-        model = VALLF(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
-        )
-    elif params.model_name.lower() in ["vall-e", "valle"]:
-        model = VALLE(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
-        )
-    else:
-        assert params.model_name in ["Transformer"]
-        model = Transformer(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
-        )
-
-    return model

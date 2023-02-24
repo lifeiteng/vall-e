@@ -32,10 +32,7 @@ class TokenEmbedding(nn.Module):
 
         self.dropout = torch.nn.Dropout(p=dropout)
         self.word_embeddings = nn.Embedding(self.vocab_size, self.dim_model)
-        self.init_weights()
-
-    def init_weights(self, gain: float = 1.0):
-        torch.nn.init.normal_(self.word_embeddings.weight, std=gain)
+        self.embedding_scale = math.sqrt(dim_model)
 
     @property
     def weight(self) -> torch.Tensor:
@@ -48,7 +45,7 @@ class TokenEmbedding(nn.Module):
         X = self.word_embeddings(x)
         X = self.dropout(X)
 
-        return X
+        return self.embedding_scale * X
 
 
 class SinePositionalEmbedding(nn.Module):

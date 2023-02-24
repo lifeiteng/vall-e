@@ -20,7 +20,7 @@ import torch
 from icefall.utils import AttributeDict
 from torchmetrics.classification import MulticlassAccuracy
 
-from valle.modules.model import NUM_MEL_BINS, get_model
+from valle.models import NUM_MEL_BINS, get_model
 
 
 class TestVALLE(unittest.TestCase):

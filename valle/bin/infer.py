@@ -41,7 +41,7 @@ from valle.data import (
     tokenize_text,
 )
 from valle.data.collation import get_text_token_collater
-from valle.modules import add_model_arguments, get_model
+from valle.models import add_model_arguments, get_model
 
 
 def get_args():
