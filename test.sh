@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-python3 valle/modules/model.py
+python3 valle/tests/model_test.py

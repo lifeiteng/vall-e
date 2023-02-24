@@ -626,7 +626,7 @@ class VALLE(VALLF):
 
 
 class Transformer(nn.Module):
-    """It implements seq2seq TTS"""
+    """It implements seq2seq TTS for debug"""
 
     def __init__(
         self,
@@ -807,65 +807,3 @@ def get_model(params: AttributeDict) -> nn.Module:
         )
 
     return model
-
-
-if __name__ == "__main__":
-    import numpy as np
-
-    params = AttributeDict()
-    params.decoder_dim = 64
-    params.nhead = 16
-    params.num_decoder_layers = 4
-
-    x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
-    x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
-    x_lens[-1] = 8
-
-    y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
-    y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
-    y_lens[-1] = 16
-
-    # VALL-F
-    params.model_name = "VALL-F"
-    model = get_model(params)
-    num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of {params.model_name} parameters: {num_param}")
-
-    # Training
-    codes, loss, metrics = model(x, x_lens, y, y_lens)
-    print(f"metrics {metrics}")
-    print(f"{params.model_name} test PASS!")
-
-    # Inference
-    model.eval()
-    codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
-
-    # VALL-E
-    params.model_name = "VALL-E"
-    model = get_model(params)
-    num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of {params.model_name} parameters: {num_param}")
-
-    # Training
-    codes, loss, metrics = model(x, x_lens, y, y_lens)
-    print(f"metrics {metrics}")
-
-    # Inference
-    model.eval()
-    codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
-    print(f"{params.model_name} test PASS!")
-
-    # Transformer
-    params.model_name = "Transformer"
-    model = get_model(params)
-    num_param = sum([p.numel() for p in model.parameters()])
-    print(f"Number of {params.model_name} parameters: {num_param}")
-
-    # Training
-    y = torch.from_numpy(
-        np.random.random((4, 16, NUM_MEL_BINS)).astype(np.float32)
-    )
-    codes, loss, metrics = model(x, x_lens, y, y_lens)
-    print(f"loss {loss}")
-
-    print(f"{params.model_name} test PASS!")
