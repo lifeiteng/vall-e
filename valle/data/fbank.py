@@ -60,6 +60,9 @@ def spectral_normalize_torch(magnitudes):
 # https://github.com/NVIDIA/BigVGAN
 # bigvgan_24khz_100band https://drive.google.com/drive/folders/1EpxX6AsxjCbbk0mmAhE0td6eYiABr8Oz
 class BigVGANFbank(FeatureExtractor):
+    name = "fbank"
+    config_type = BigVGANFbankConfig
+
     def __init__(self, config: Optional[Any] = None):
         super(BigVGANFbank, self).__init__(config)
         sampling_rate = 24000
