@@ -299,7 +299,7 @@ class TtsDataModule:
             logging.info(
                 "Using SingleCutSampler and sort by duraton(ascending=True)."
             )
-            cuts_train = cuts_train.sort_by_duration(ascending=True)
+            cuts_train = cuts_train.to_eager().sort_by_duration(ascending=True)
             train_sampler = SingleCutSampler(
                 cuts_train,
                 max_duration=self.args.max_duration,
