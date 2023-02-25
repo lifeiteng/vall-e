@@ -77,6 +77,7 @@ export PYTHONPATH=`pwd`/../icefall:$PYTHONPATH
 echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.zshrc
 echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.bashrc
 cd -
+source ~/.zshrc
 
 # valle
 git clone https://github.com/lifeiteng/valle.git

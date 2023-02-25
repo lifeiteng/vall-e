@@ -12,6 +12,8 @@ cd egs/libritts
 # Those stages are very time-consuming
 bash run.sh --stage -1 --stop-stage 3
 ```
+
+
 ## Training
 
 ```
@@ -21,6 +23,7 @@ bash run.sh --stage 4 --stop-stage 4 \
     --max-duration 40 --use-fp16 true
 ```
 ![train](./demos/train.png)
+
 
 ## Inference
 * checkpoint `exp/valle/epoch-10.pt` will be added.

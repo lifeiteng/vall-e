@@ -26,7 +26,10 @@ NUM_MEL_BINS = 100  # BigVGAN bigvgan_24khz_100band
 
 
 class Transformer(nn.Module):
-    """It implements seq2seq Transformer TTS for debug(No StopPredictor and SpeakerEmbeding)"""
+    """It implements seq2seq Transformer TTS for debug(No StopPredictor and SpeakerEmbeding)
+    Neural Speech Synthesis with Transformer Network
+    https://arxiv.org/abs/1809.08895
+    """
 
     def __init__(
         self, d_model: int, nhead: int, num_layers: int, norm_first: bool = True
