@@ -48,10 +48,12 @@ class TokenEmbedding(nn.Module):
 
 
 class SinePositionalEmbedding(nn.Module):
-    def __init__(self, dim_model: int, dropout: float = 0.0):
+    def __init__(
+        self, dim_model: int, dropout: float = 0.0, scale: bool = True
+    ):
         super().__init__()
         self.dim_model = dim_model
-        self.x_scale = math.sqrt(dim_model)
+        self.x_scale = math.sqrt(dim_model) if scale else 1.0
         self.alpha = nn.Parameter(torch.ones(1))
         self.dropout = torch.nn.Dropout(p=dropout)
 

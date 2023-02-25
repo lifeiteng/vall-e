@@ -33,6 +33,13 @@ NUM_AUDIO_TOKENS = 1024  # EnCodec RVQ bins
 NUM_MEL_BINS = 100  # BigVGAN bigvgan_24khz_100band
 
 
+class Transpose(nn.Identity):
+    """(N, T, D) -> (N, D, T)"""
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return input.transpose(1, 2)
+
+
 # NOTE: There are two ways to implement the model
 #       1) [VALL-F] standard TransformerDecoder, use x as memory
 #       2) [VALL-E] modified TransformerDecoder like GPT-x(e.g. causal TransformerEncoder),
@@ -65,13 +72,52 @@ class VALLF(nn.Module):
         """
         super().__init__()
         self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
-        self.text_position = SinePositionalEmbedding(d_model, dropout=0.1)
-
         self.audio_embeddings = nn.ModuleList(
             [TokenEmbedding(d_model, NUM_AUDIO_TOKENS + 1)]
             + [TokenEmbedding(d_model, NUM_AUDIO_TOKENS) for i in range(6)]
         )  # W_a
-        self.audio_position = SinePositionalEmbedding(d_model, dropout=0.1)
+
+        # PreNet
+        if False:
+            self.text_prenet = nn.Sequential(
+                Transpose(),
+                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
+                nn.BatchNorm1d(d_model),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
+                nn.BatchNorm1d(d_model),
+                nn.ReLU(),
+                nn.Dropout(0.5),
+                Transpose(),
+                nn.Linear(d_model, d_model),
+            )
+
+            self.audio_prenet = nn.Sequential(
+                nn.Linear(d_model, d_model),
+                # nn.BatchNorm1d(d_model),
+                nn.ReLU(),
+                nn.Dropout(0.25),
+                # nn.Linear(d_model, d_model),
+                # nn.BatchNorm1d(d_model),
+                # nn.ReLU(),
+                # nn.Dropout(0.25),
+                nn.Linear(d_model, d_model),
+            )
+        else:
+            self.text_prenet = nn.Identity()
+            self.audio_prenet = nn.Identity()
+
+        self.text_position = SinePositionalEmbedding(
+            d_model,
+            dropout=0.1,
+            scale=isinstance(self.text_prenet, nn.Identity),
+        )
+        self.audio_position = SinePositionalEmbedding(
+            d_model,
+            dropout=0.1,
+            scale=isinstance(self.audio_prenet, nn.Identity),
+        )
 
         self.stage_embeddings = nn.ModuleList(
             [TokenEmbedding(d_model, 1) for i in range(8)]
@@ -182,6 +228,7 @@ class VALLF(nn.Module):
         x_mask = make_pad_mask(x_lens).to(x.device)
 
         x = self.text_embedding(x)
+        x = self.text_prenet(x)
         x = self.text_position(x)
 
         total_loss, metrics = 0.0, {}
@@ -202,6 +249,7 @@ class VALLF(nn.Module):
 
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
+        y_emb = self.audio_prenet(y_emb)
         y_pos = self.audio_position(y_emb)
 
         y_len = y_lens.max()
@@ -286,6 +334,7 @@ class VALLF(nn.Module):
         assert torch.all(x_lens > 0)
 
         x = self.text_embedding(x)
+        x = self.text_prenet(x)
         x = self.text_position(x)
         # NOTE: x has been padded in TextTokenCollater
         x_mask = make_pad_mask(x_lens).to(x.device)
@@ -298,6 +347,7 @@ class VALLF(nn.Module):
         y = prompts[..., 0]
         while True:
             y_emb = self.audio_embeddings[0](y)
+            y_emb = self.audio_prenet(y_emb)
             y_pos = self.audio_position(y_emb)
 
             tgt_mask = torch.triu(
@@ -418,6 +468,7 @@ class VALLE(VALLF):
         x_mask = make_pad_mask(x_lens).to(x.device)
 
         x = self.text_embedding(x)
+        x = self.text_prenet(x)
         x = self.text_position(x)
 
         total_loss, metrics = 0.0, {}
@@ -457,6 +508,7 @@ class VALLE(VALLF):
 
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
+        y_emb = self.audio_prenet(y_emb)
         y_pos = self.audio_position(y_emb)
 
         xy_pos = torch.concat([x, y_pos], dim=1)
@@ -544,6 +596,7 @@ class VALLE(VALLF):
 
         # NOTE: x has been padded in TextTokenCollater
         x = self.text_embedding(x)
+        x = self.text_prenet(x)
         x = self.text_position(x)
 
         prompts = y
@@ -558,6 +611,7 @@ class VALLE(VALLF):
 
         while True:
             y_emb = self.audio_embeddings[0](y)
+            y_emb = self.audio_prenet(y_emb)
             y_pos = self.audio_position(y_emb)
             xy_pos = torch.concat([x, y_pos], dim=1)
 
