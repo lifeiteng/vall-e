@@ -155,6 +155,9 @@ def main():
                     f"{args.output_dir}/{args.prefix}_fbank_{partition}"
                 )
 
+            if args.prefix == "ljspeech":
+                cut_set = cut_set.resample(24000)
+
             with torch.no_grad():
                 cut_set = cut_set.compute_and_store_features(
                     extractor=extractor,
@@ -166,9 +169,15 @@ def main():
 
             # Tokenize Text
             for c in tqdm(cut_set):
-                phonemes = tokenize_text(
-                    text_tokenizer, text=c.supervisions[0].text
-                )
+                if args.prefix == "ljspeech":
+                    text = c.supervisions[0].custom["normalized_text"]
+                    text = text.replace("”", '"').replace("“", '"')
+                    phonemes = tokenize_text(text_tokenizer, text=text)
+                else:
+                    assert args.prefix == "libritts"
+                    phonemes = tokenize_text(
+                        text_tokenizer, text=c.supervisions[0].text
+                    )
                 c.supervisions[0].custom["tokens"] = {"text": phonemes}
                 unique_symbols.update(list(phonemes))
 
@@ -176,7 +185,7 @@ def main():
             cut_set.to_file(f"{args.output_dir}/{cuts_filename}")
 
     unique_phonemes = SymbolTable()
-    for s in unique_symbols:
+    for s in sorted(list(unique_symbols)):
         unique_phonemes.add(s)
     logging.info(f"unique phonemes: {unique_symbols}")
 

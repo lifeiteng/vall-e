@@ -69,7 +69,7 @@ class TextTokenizer:
 
 
 def tokenize_text(tokenizer: TextTokenizer, text: str):
-    phonemes = tokenizer([text])
+    phonemes = tokenizer([text.strip()])
     return phonemes[0].replace(" ", "_")  # k2symbols
 
 
