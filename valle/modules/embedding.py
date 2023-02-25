@@ -32,7 +32,6 @@ class TokenEmbedding(nn.Module):
 
         self.dropout = torch.nn.Dropout(p=dropout)
         self.word_embeddings = nn.Embedding(self.vocab_size, self.dim_model)
-        self.embedding_scale = math.sqrt(dim_model)
 
     @property
     def weight(self) -> torch.Tensor:
@@ -45,34 +44,48 @@ class TokenEmbedding(nn.Module):
         X = self.word_embeddings(x)
         X = self.dropout(X)
 
-        return self.embedding_scale * X
+        return X
 
 
 class SinePositionalEmbedding(nn.Module):
-    def __init__(self, dim_model: int):
+    def __init__(self, dim_model: int, dropout: float = 0.0):
         super().__init__()
         self.dim_model = dim_model
+        self.x_scale = math.sqrt(dim_model)
         self.alpha = nn.Parameter(torch.ones(1))
+        self.dropout = torch.nn.Dropout(p=dropout)
+
+        self.reverse = False
+        self.pe = None
+        self.extend_pe(torch.tensor(0.0).expand(1, 4000))
+
+    def extend_pe(self, x):
+        """Reset the positional encodings."""
+        if self.pe is not None:
+            if self.pe.size(1) >= x.size(1):
+                if self.pe.dtype != x.dtype or self.pe.device != x.device:
+                    self.pe = self.pe.to(dtype=x.dtype, device=x.device)
+                return
+        pe = torch.zeros(x.size(1), self.dim_model)
+        if self.reverse:
+            position = torch.arange(
+                x.size(1) - 1, -1, -1.0, dtype=torch.float32
+            ).unsqueeze(1)
+        else:
+            position = torch.arange(
+                0, x.size(1), dtype=torch.float32
+            ).unsqueeze(1)
+        div_term = torch.exp(
+            torch.arange(0, self.dim_model, 2, dtype=torch.float32)
+            * -(math.log(10000.0) / self.dim_model)
+        )
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.pe = pe.to(device=x.device, dtype=x.dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        seq_len = x.shape[1]
-        pos = (
-            torch.arange(0, seq_len, device=x.device, dtype=torch.float32)
-            .unsqueeze(1)
-            .repeat(1, self.dim_model)
-        )
-        dim = (
-            torch.arange(
-                0, self.dim_model, device=x.device, dtype=torch.float32
-            )
-            .unsqueeze(0)
-            .repeat(seq_len, 1)
-        )
-        div = torch.exp(-math.log(10000) * (2 * (dim // 2) / self.dim_model))
-        pos *= div
-        pos[:, 0::2] = torch.sin(pos[:, 0::2])
-        pos[:, 1::2] = torch.cos(pos[:, 1::2])
-
+        self.extend_pe(x)
         output = x.unsqueeze(-1) if x.ndim == 2 else x
-
-        return output + self.alpha * pos.unsqueeze(0)
+        output = output * self.x_scale + self.alpha * self.pe[:, : x.size(1)]
+        return self.dropout(output)

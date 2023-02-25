@@ -65,13 +65,13 @@ class VALLF(nn.Module):
         """
         super().__init__()
         self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
-        self.text_position = SinePositionalEmbedding(d_model)
+        self.text_position = SinePositionalEmbedding(d_model, dropout=0.1)
 
         self.audio_embeddings = nn.ModuleList(
             [TokenEmbedding(d_model, NUM_AUDIO_TOKENS + 1)]
             + [TokenEmbedding(d_model, NUM_AUDIO_TOKENS) for i in range(6)]
         )  # W_a
-        self.audio_position = SinePositionalEmbedding(d_model)
+        self.audio_position = SinePositionalEmbedding(d_model, dropout=0.1)
 
         self.stage_embeddings = nn.ModuleList(
             [TokenEmbedding(d_model, 1) for i in range(8)]
@@ -122,7 +122,10 @@ class VALLF(nn.Module):
         self.rng = random.Random(0)
 
         self.ar_accuracy_metric = MulticlassAccuracy(
-            NUM_AUDIO_TOKENS + 1, top_k=10, average="micro"
+            NUM_AUDIO_TOKENS + 1,
+            top_k=10,
+            average="micro",
+            ignore_index=NUM_AUDIO_TOKENS,
         )
 
         self.nar_accuracy_metric = MulticlassAccuracy(
@@ -431,18 +434,19 @@ class VALLE(VALLF):
         # xy_padding_mask = F.pad(y_mask, (x_len, 0), value=False)
 
         x_attn_mask = F.pad(
-            torch.zeros((x_len, x_len), dtype=torch.bool),
+            torch.zeros((x_len, x_len), dtype=torch.bool, device=x.device),
             (0, y_len),
             value=True,
         )
         y_attn_mask = F.pad(
-            torch.triu(torch.ones(y_len, y_len, dtype=torch.bool), diagonal=1),
+            torch.triu(
+                torch.ones(y_len, y_len, dtype=torch.bool, device=x.device),
+                diagonal=1,
+            ),
             (x_len, 0),
             value=False,
         )
-        xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0).to(
-            y.device
-        )
+        xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0)
 
         # Training
         # AR Decoder
