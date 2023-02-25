@@ -29,10 +29,7 @@ class Transformer(nn.Module):
     """It implements seq2seq Transformer TTS for debug(No StopPredictor and SpeakerEmbeding)"""
 
     def __init__(
-        self,
-        d_model: int,
-        nhead: int,
-        num_layers: int,
+        self, d_model: int, nhead: int, num_layers: int, norm_first: bool = True
     ):
         """
         Args:
@@ -87,7 +84,6 @@ class Transformer(nn.Module):
             d_model, dropout=0.1, scale=False
         )
 
-        norm_first = True
         self.encoder = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model,
@@ -223,9 +219,12 @@ class Transformer(nn.Module):
 
         assert torch.all(x_lens > 0)
 
+        x_mask = make_pad_mask(x_lens).to(x.device)
+
         x = self.text_embedding(x)
         x = self.encoder_prenet(x)
         x = self.encoder_position(x)
+        x = self.encoder(x, src_key_padding_mask=x_mask)
 
         x_mask = make_pad_mask(x_lens).to(x.device)
 
@@ -255,7 +254,7 @@ class Transformer(nn.Module):
             predict = self.predict_layer(y_dec[:, -1:])
 
             # TODO: add stop predictor
-            if y.shape[1] > x_lens.max() * 20:
+            if y.shape[1] > x_lens.max() * 10:
                 print(f"EOS [{x_lens[0]} -> {y.shape[1]}]")
                 break
 
