@@ -38,21 +38,39 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         default=True,
         help="Pre or Post Normalization.",
     )
+    parser.add_argument(
+        "--add-prenet",
+        type=str2bool,
+        default=False,
+        help="Whether add PreNet after Inputs.",
+    )
 
 
 def get_model(params: AttributeDict) -> nn.Module:
     if params.model_name.lower() in ["vall-f", "vallf"]:
         model = VALLF(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
+            params.decoder_dim,
+            params.nhead,
+            params.num_decoder_layers,
+            norm_first=params.norm_first,
+            add_prenet=params.add_prenet,
         )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
+            params.decoder_dim,
+            params.nhead,
+            params.num_decoder_layers,
+            norm_first=params.norm_first,
+            add_prenet=params.add_prenet,
         )
     else:
         assert params.model_name in ["Transformer"]
         model = Transformer(
-            params.decoder_dim, params.nhead, params.num_decoder_layers
+            params.decoder_dim,
+            params.nhead,
+            params.num_decoder_layers,
+            norm_first=params.norm_first,
+            add_prenet=params.add_prenet,
         )
 
     return model

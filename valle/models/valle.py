@@ -55,6 +55,7 @@ class VALLF(nn.Module):
         nhead: int,
         num_layers: int,
         norm_first: bool = True,
+        add_prenet: bool = False,
         decoder_cls: Union[
             nn.TransformerDecoder, nn.TransformerEncoder
         ] = nn.TransformerDecoder,
@@ -79,7 +80,7 @@ class VALLF(nn.Module):
         )  # W_a
 
         # PreNet
-        if False:
+        if add_prenet:
             self.text_prenet = nn.Sequential(
                 Transpose(),
                 nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
@@ -99,15 +100,13 @@ class VALLF(nn.Module):
             )
 
             self.audio_prenet = nn.Sequential(
-                nn.Linear(d_model, d_model),
-                # nn.BatchNorm1d(d_model),
+                nn.Linear(d_model, 256),
                 nn.ReLU(),
                 nn.Dropout(0.25),
-                nn.Linear(d_model, d_model),
-                nn.BatchNorm1d(d_model),
+                nn.Linear(256, 256),
                 nn.ReLU(),
                 nn.Dropout(0.25),
-                nn.Linear(d_model, d_model),
+                nn.Linear(256, d_model),
             )
         else:
             self.text_prenet = nn.Identity()
@@ -421,6 +420,7 @@ class VALLE(VALLF):
         nhead: int,
         num_layers: int,
         norm_first: bool = True,
+        add_prenet: bool = False,
     ):
         """
         Args:
@@ -436,6 +436,7 @@ class VALLE(VALLF):
             nhead,
             num_layers,
             norm_first=norm_first,
+            add_prenet=add_prenet,
             decoder_cls=nn.TransformerEncoder,
             decoder_layer_cls=TransformerEncoderLayer,
         )

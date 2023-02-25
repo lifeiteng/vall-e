@@ -47,6 +47,8 @@ class TestModel(unittest.TestCase):
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
 
+        params.norm_first = True
+        params.add_prenet = False
         params.model_name = "VALL-F"
         model = get_model(params)
         num_param = sum([p.numel() for p in model.parameters()])
@@ -79,6 +81,9 @@ class TestModel(unittest.TestCase):
         y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
+
+        params.norm_first = False
+        params.add_prenet = True
         params.model_name = "VALL-E"
         model = get_model(params)
         num_param = sum([p.numel() for p in model.parameters()])
@@ -156,6 +161,7 @@ class TestModel(unittest.TestCase):
 
         params.model_name = "Transformer"
         params.norm_first = False
+        params.add_prenet = True
 
         for device in self.devices:
             # Transformer
@@ -173,6 +179,7 @@ class TestModel(unittest.TestCase):
             # Inference
             model.eval()
             codes = model.inference(x[-1:], x_lens[-1:])
+            params.add_prenet = False
 
 
 if __name__ == "__main__":

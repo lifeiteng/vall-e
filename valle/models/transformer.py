@@ -32,7 +32,12 @@ class Transformer(nn.Module):
     """
 
     def __init__(
-        self, d_model: int, nhead: int, num_layers: int, norm_first: bool = True
+        self,
+        d_model: int,
+        nhead: int,
+        num_layers: int,
+        norm_first: bool = True,
+        add_prenet: bool = False,
     ):
         """
         Args:
@@ -46,7 +51,7 @@ class Transformer(nn.Module):
         super().__init__()
         self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
 
-        if False:
+        if add_prenet:
             self.encoder_prenet = nn.Sequential(
                 Transpose(),
                 nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
