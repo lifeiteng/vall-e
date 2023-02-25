@@ -47,12 +47,12 @@ class TestModel(unittest.TestCase):
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
 
+        params.model_name = "VALL-F"
+        model = get_model(params)
+        num_param = sum([p.numel() for p in model.parameters()])
+
         for device in self.devices:
             # VALL-F
-            params.model_name = "VALL-F"
-            model = get_model(params)
-            num_param = sum([p.numel() for p in model.parameters()])
-
             model.to(device)
             x = x.to(device)
             x_lens = x_lens.to(device)
@@ -79,12 +79,12 @@ class TestModel(unittest.TestCase):
         y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
+        params.model_name = "VALL-E"
+        model = get_model(params)
+        num_param = sum([p.numel() for p in model.parameters()])
 
         for device in self.devices:
             # VALL-E
-            params.model_name = "VALL-E"
-            model = get_model(params)
-            num_param = sum([p.numel() for p in model.parameters()])
 
             model.to(device)
             x = x.to(device)
@@ -141,7 +141,7 @@ class TestModel(unittest.TestCase):
     def test_transformer(self):
         params = AttributeDict()
         params.decoder_dim = 64
-        params.nhead = 16
+        params.nhead = 4
         params.num_decoder_layers = 4
 
         x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
@@ -154,9 +154,11 @@ class TestModel(unittest.TestCase):
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
         y_lens[-1] = 16
 
+        params.model_name = "Transformer"
+        params.norm_first = False
+
         for device in self.devices:
             # Transformer
-            params.model_name = "Transformer"
             model = get_model(params)
             num_param = sum([p.numel() for p in model.parameters()])
 

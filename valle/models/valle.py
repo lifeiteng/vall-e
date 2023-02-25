@@ -54,6 +54,7 @@ class VALLF(nn.Module):
         d_model: int,
         nhead: int,
         num_layers: int,
+        norm_first: bool = True,
         decoder_cls: Union[
             nn.TransformerDecoder, nn.TransformerEncoder
         ] = nn.TransformerDecoder,
@@ -89,6 +90,10 @@ class VALLF(nn.Module):
                 nn.BatchNorm1d(d_model),
                 nn.ReLU(),
                 nn.Dropout(0.5),
+                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
+                nn.BatchNorm1d(d_model),
+                nn.ReLU(),
+                nn.Dropout(0.5),
                 Transpose(),
                 nn.Linear(d_model, d_model),
             )
@@ -98,10 +103,10 @@ class VALLF(nn.Module):
                 # nn.BatchNorm1d(d_model),
                 nn.ReLU(),
                 nn.Dropout(0.25),
-                # nn.Linear(d_model, d_model),
-                # nn.BatchNorm1d(d_model),
-                # nn.ReLU(),
-                # nn.Dropout(0.25),
+                nn.Linear(d_model, d_model),
+                nn.BatchNorm1d(d_model),
+                nn.ReLU(),
+                nn.Dropout(0.25),
                 nn.Linear(d_model, d_model),
             )
         else:
@@ -123,7 +128,6 @@ class VALLF(nn.Module):
             [TokenEmbedding(d_model, 1) for i in range(8)]
         )
 
-        norm_first = True
         self.ar_decoder = decoder_cls(
             decoder_layer_cls(
                 d_model,
@@ -416,6 +420,7 @@ class VALLE(VALLF):
         d_model: int,
         nhead: int,
         num_layers: int,
+        norm_first: bool = True,
     ):
         """
         Args:
@@ -430,6 +435,7 @@ class VALLE(VALLF):
             d_model,
             nhead,
             num_layers,
+            norm_first=norm_first,
             decoder_cls=nn.TransformerEncoder,
             decoder_layer_cls=TransformerEncoderLayer,
         )

@@ -1,13 +1,19 @@
 import argparse
 
 import torch.nn as nn
-from icefall.utils import AttributeDict
+from icefall.utils import AttributeDict, str2bool
 
 from .transformer import Transformer
 from .valle import NUM_MEL_BINS, VALLE, VALLF
 
 
 def add_model_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="VALL-E",
+        help="VALL-E, VALL-F or Transformer.",
+    )
     parser.add_argument(
         "--decoder-dim",
         type=int,
@@ -27,10 +33,10 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Number of Decoder layers.",
     )
     parser.add_argument(
-        "--model-name",
-        type=str,
-        default="VALL-E",
-        help="VALL-E, VALL-F or Transformer.",
+        "--norm-first",
+        type=str2bool,
+        default=True,
+        help="Pre or Post Normalization.",
     )
 
 
