@@ -287,7 +287,7 @@ class TtsDataModule:
             )
 
         if self.args.bucketing_sampler:
-            logging.info("Using DynamicBucketingSampler.")
+            logging.info("Using DynamicBucketingSampler")
             train_sampler = DynamicBucketingSampler(
                 cuts_train,
                 max_duration=self.args.max_duration,

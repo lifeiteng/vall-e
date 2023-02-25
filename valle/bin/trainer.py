@@ -612,15 +612,15 @@ def train_one_epoch(
                         # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
-
                     for k in range(params.accumulate_grad_steps):
                         if isinstance(scheduler, Eden):
                             scheduler.step_batch(params.batch_idx_train)
                         else:
                             scheduler.step()
+
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
 
             set_batch_count(model, params.batch_idx_train)
         except:  # noqa
@@ -861,6 +861,8 @@ def run(rank, world_size, args):
         scheduler = _get_scheduler(optimizer)
     else:
         raise NotImplementedError()
+
+    optimizer.zero_grad()
 
     checkpoints = load_checkpoint_if_available(
         params=params, model=model, model_avg=model_avg
