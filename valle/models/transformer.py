@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from icefall.utils import make_pad_mask
+from torchmetrics.classification import BinaryAccuracy
 
 from valle.models.valle import NUM_TEXT_TOKENS, Transpose
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
@@ -51,6 +52,7 @@ class Transformer(nn.Module):
         super().__init__()
         self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
 
+        print(f"norm_first {norm_first} add_prenet {add_prenet}")
         if add_prenet:
             self.encoder_prenet = nn.Sequential(
                 Transpose(),
@@ -119,6 +121,9 @@ class Transformer(nn.Module):
         )
 
         self.predict_layer = nn.Linear(d_model, NUM_MEL_BINS)
+        self.stop_layer = nn.Linear(d_model, 1)
+
+        self.stop_accuracy_metric = BinaryAccuracy(threshold=0.5)
 
     #     self.apply(self._init_weights)
 
@@ -174,7 +179,8 @@ class Transformer(nn.Module):
         total_loss, metrics = 0.0, {}
 
         y_mask = make_pad_mask(y_lens).to(y.device)
-        data_mask = 1.0 - y_mask.type(torch.float32).unsqueeze(-1)
+        y_mask_float = y_mask.type(torch.float32)
+        data_mask = 1.0 - y_mask_float.unsqueeze(-1)
 
         # Training
         # AR Decoder
@@ -204,7 +210,21 @@ class Transformer(nn.Module):
         # pixel_mse = F.mse_loss(predict, targets, reduction="none")
         # total_loss = torch.sum(pixel_mse * data_mask)
         total_loss = F.mse_loss(predict, targets, reduction=reduction)
-        return (predict, total_loss, metrics)
+
+        logits = self.stop_layer(y_dec).squeeze(-1)
+        stop_loss = F.binary_cross_entropy_with_logits(
+            logits,
+            y_mask_float,
+            weight=1.0 + y_mask_float * 4.0,
+            reduction=reduction,
+        )
+
+        stop_accuracy = self.stop_accuracy_metric(
+            torch.sigmoid(logits), y_mask.type(torch.int64)
+        )
+        metrics["stop_accuracy"] = stop_accuracy
+
+        return (predict, total_loss + stop_loss, metrics)
 
     def inference(
         self,
