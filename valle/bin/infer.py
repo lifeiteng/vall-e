@@ -107,7 +107,7 @@ def main():
         device = torch.device("cuda", 0)
 
     model = get_model(args)
-    if args.checkpoint.is_file():
+    if args.checkpoint:
         checkpoint = torch.load(args.checkpoint, map_location=device)
         missing_keys, unexpected_keys = model.load_state_dict(
             checkpoint["model"], strict=True
@@ -121,26 +121,31 @@ def main():
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    text_prompts, text_prompts_lens = text_collater(
-        [
-            tokenize_text(
-                text_tokenizer, text=" ".join(args.text_prompts.split("|"))
-            )
-        ]
-    )
+    text_prompts, audio_prompts = [], []
 
-    audio_prompts = []
-    for n, audio_file in enumerate(args.audio_prompts.split("|")):
-        encoded_frames = tokenize_audio(audio_tokenizer, audio_file)
-        if False:
-            samples = audio_tokenizer.decode(encoded_frames)
-            torchaudio.save(f"{args.output_dir}/p{n}.wav", samples[0], 24000)
+    if args.text_prompts:
+        text_prompts, text_prompts_lens = text_collater(
+            [
+                tokenize_text(
+                    text_tokenizer, text=" ".join(args.text_prompts.split("|"))
+                )
+            ]
+        )
 
-        audio_prompts.append(encoded_frames[0][0])
+    if args.audio_prompts:
+        for n, audio_file in enumerate(args.audio_prompts.split("|")):
+            encoded_frames = tokenize_audio(audio_tokenizer, audio_file)
+            if False:
+                samples = audio_tokenizer.decode(encoded_frames)
+                torchaudio.save(
+                    f"{args.output_dir}/p{n}.wav", samples[0], 24000
+                )
 
-    assert len(args.text_prompts.split("|")) == len(audio_prompts)
+            audio_prompts.append(encoded_frames[0][0])
 
-    audio_prompts = torch.concat(audio_prompts, dim=-1).transpose(2, 1)
+        assert len(args.text_prompts.split("|")) == len(audio_prompts)
+        audio_prompts = torch.concat(audio_prompts, dim=-1).transpose(2, 1)
+        audio_prompts = audio_prompts.to(device)
 
     for n, text in enumerate(args.text.split("|")):
         logging.info(f"synthesize text: {text}")
@@ -148,22 +153,29 @@ def main():
             [tokenize_text(text_tokenizer, text=text)]
         )
 
-        text_tokens = torch.concat(
-            [text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1
-        )
-        text_tokens_lens += text_prompts_lens - 2
+        if text_prompts != []:
+            text_tokens = torch.concat(
+                [text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1
+            )
+            text_tokens_lens += text_prompts_lens - 2
 
         # synthesis
         encoded_frames = model.inference(
             text_tokens.to(device),
             text_tokens_lens.to(device),
-            audio_prompts.to(device),
+            audio_prompts,
         )
-        samples = audio_tokenizer.decode(
-            [(encoded_frames.transpose(2, 1), None)]
-        )
-        # store
-        torchaudio.save(f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000)
+
+        if audio_prompts != []:
+            samples = audio_tokenizer.decode(
+                [(encoded_frames.transpose(2, 1), None)]
+            )
+            # store
+            torchaudio.save(
+                f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000
+            )
+        else:  # Transformer
+            model.visualize(encoded_frames, args.output_dir)
 
 
 torch.set_num_threads(1)

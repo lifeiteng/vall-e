@@ -23,7 +23,7 @@ from torchmetrics.classification import MulticlassAccuracy
 from valle.models import NUM_MEL_BINS, get_model
 
 
-class TestVALLE(unittest.TestCase):
+class TestModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.devices = [torch.device("cpu")]
@@ -168,6 +168,9 @@ class TestVALLE(unittest.TestCase):
 
             # Training
             codes, loss, metrics = model(x, x_lens, y, y_lens)
+            # Inference
+            model.eval()
+            codes = model.inference(x[-1:], x_lens[-1:])
 
 
 if __name__ == "__main__":
