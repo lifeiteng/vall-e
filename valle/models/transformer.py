@@ -52,7 +52,6 @@ class Transformer(nn.Module):
         super().__init__()
         self.text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
 
-        print(f"norm_first {norm_first} add_prenet {add_prenet}")
         if add_prenet:
             self.encoder_prenet = nn.Sequential(
                 Transpose(),
@@ -99,6 +98,7 @@ class Transformer(nn.Module):
                 d_model,
                 nhead,
                 dim_feedforward=d_model * 4,
+                activation=F.relu,
                 dropout=0.1,
                 batch_first=True,
                 norm_first=norm_first,
@@ -112,6 +112,7 @@ class Transformer(nn.Module):
                 d_model,
                 nhead,
                 dim_feedforward=d_model * 4,
+                activation=F.relu,
                 dropout=0.1,
                 batch_first=True,
                 norm_first=norm_first,
@@ -123,7 +124,9 @@ class Transformer(nn.Module):
         self.predict_layer = nn.Linear(d_model, NUM_MEL_BINS)
         self.stop_layer = nn.Linear(d_model, 1)
 
-        self.stop_accuracy_metric = BinaryAccuracy(threshold=0.5)
+        self.stop_accuracy_metric = BinaryAccuracy(
+            threshold=0.5, multidim_average="samplewise"
+        )
 
     #     self.apply(self._init_weights)
 
@@ -136,7 +139,7 @@ class Transformer(nn.Module):
     #         module.bias.data.zero_()
     #         module.weight.data.fill_(1.0)
     #     elif isinstance(module, nn.Embedding):
-    #         module.weight.data.normal_(mean=0.0, std=1.0)
+    #         module.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(
         self,
@@ -185,7 +188,7 @@ class Transformer(nn.Module):
         # Training
         # AR Decoder
         def pad_y(y):
-            y = F.pad(y, (0, 0, 1, 0, 0, 0), value=0)
+            y = F.pad(y, (0, 0, 1, 0, 0, 0), value=0).detach()
             # inputs, targets
             return y[:, :-1], y[:, 1:]
 
@@ -205,26 +208,30 @@ class Transformer(nn.Module):
             tgt_mask=tgt_mask,
             memory_key_padding_mask=x_mask,
         )
+
         predict = self.predict_layer(y_dec)
         # loss
-        # pixel_mse = F.mse_loss(predict, targets, reduction="none")
-        # total_loss = torch.sum(pixel_mse * data_mask)
         total_loss = F.mse_loss(predict, targets, reduction=reduction)
 
         logits = self.stop_layer(y_dec).squeeze(-1)
         stop_loss = F.binary_cross_entropy_with_logits(
             logits,
-            y_mask_float,
-            weight=1.0 + y_mask_float * 4.0,
+            y_mask_float.detach(),
+            weight=1.0 + y_mask_float.detach() * 4.0,
             reduction=reduction,
         )
+        metrics["stop_loss"] = stop_loss.detach()
 
         stop_accuracy = self.stop_accuracy_metric(
-            torch.sigmoid(logits), y_mask.type(torch.int64)
+            (torch.sigmoid(logits) >= 0.5).type(torch.int64),
+            y_mask.type(torch.int64),
         )
-        metrics["stop_accuracy"] = stop_accuracy
+        # icefall MetricsTracker.norm_items()
+        metrics["stop_accuracy"] = stop_accuracy.mean() * y_lens.sum().type(
+            torch.float32
+        )
 
-        return (predict, total_loss + stop_loss, metrics)
+        return ((x, predict), total_loss + 100.0 * stop_loss, metrics)
 
     def inference(
         self,

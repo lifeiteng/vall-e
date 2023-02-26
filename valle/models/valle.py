@@ -309,7 +309,7 @@ class VALLF(nn.Module):
             targets,
         )
 
-        return (codes, total_loss / 2.0, metrics)
+        return ((x, codes), total_loss / 2.0, metrics)
 
     def inference(
         self,
@@ -574,7 +574,7 @@ class VALLE(VALLF):
             targets,
         )
 
-        return (codes, total_loss / 2.0, metrics)
+        return ((x, codes), total_loss / 2.0, metrics)
 
     def inference(
         self,

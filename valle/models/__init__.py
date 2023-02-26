@@ -5,6 +5,7 @@ from icefall.utils import AttributeDict, str2bool
 
 from .transformer import Transformer
 from .valle import NUM_MEL_BINS, VALLE, VALLF
+from .visualizer import visualize
 
 
 def add_model_arguments(parser: argparse.ArgumentParser):

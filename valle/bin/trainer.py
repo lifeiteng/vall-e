@@ -62,7 +62,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 
 from valle.data import TtsDataModule
-from valle.models import add_model_arguments, get_model
+from valle.models import add_model_arguments, get_model, visualize
 from valle.modules.optim import Eden, Eve, ScaledAdam
 from valle.modules.scheduler import get_scheduler
 
@@ -441,7 +441,7 @@ def compute_loss(
     assert audio_features.ndim == 3
 
     with torch.set_grad_enabled(is_training):
-        _, loss, metrics = model(
+        predicts, loss, metrics = model(
             x=text_tokens,
             x_lens=text_tokens_lens,
             y=audio_features,
@@ -460,7 +460,7 @@ def compute_loss(
     for metric in metrics:
         info[metric] = metrics[metric].detach().cpu().item()
 
-    return loss, info
+    return predicts, loss, info
 
 
 def compute_validation_loss(
@@ -474,7 +474,7 @@ def compute_validation_loss(
     tot_loss = MetricsTracker()
 
     for batch_idx, batch in enumerate(valid_dl):
-        loss, loss_info = compute_loss(
+        predicts, loss, loss_info = compute_loss(
             params=params,
             model=model,
             batch=batch,
@@ -490,6 +490,12 @@ def compute_validation_loss(
     if loss_value < params.best_valid_loss:
         params.best_valid_epoch = params.cur_epoch
         params.best_valid_loss = loss_value
+
+    output_dir = Path(
+        f"{params.exp_dir}/eval/step-{params.batch_idx_train:06d}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    visualize(predicts, batch, output_dir=output_dir)
 
     return tot_loss
 
@@ -564,7 +570,7 @@ def train_one_epoch(
 
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
-                loss, loss_info = compute_loss(
+                _, loss, loss_info = compute_loss(
                     params=params,
                     model=model,
                     batch=batch,
@@ -955,7 +961,7 @@ def scan_pessimistic_batches_for_oom(
         batch = train_dl.dataset[cuts]
         try:
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
-                loss, _ = compute_loss(
+                _, loss, _ = compute_loss(
                     params=params,
                     model=model,
                     batch=batch,
