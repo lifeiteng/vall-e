@@ -64,42 +64,9 @@ from torch.utils.tensorboard import SummaryWriter
 from valle.data import TtsDataModule
 from valle.models import add_model_arguments, get_model
 from valle.modules.optim import Eden, Eve, ScaledAdam
+from valle.modules.scheduler import get_scheduler
 
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
-
-
-def calc_lr(step, dim_embed, warmup_steps):
-    return dim_embed ** (-0.5) * min(
-        step ** (-0.5), step * warmup_steps ** (-1.5)
-    )
-
-
-class Scheduler(torch.optim.lr_scheduler._LRScheduler):
-    def __init__(
-        self,
-        base_lr: float,
-        optimizer: torch.optim.Optimizer,
-        dim_embed: int,
-        warmup_steps: int,
-        last_epoch: int = -1,
-        verbose: bool = False,
-    ) -> None:
-
-        self.dim_embed = dim_embed
-        self.base_lr = base_lr
-        self.warmup_steps = warmup_steps
-        self.num_param_groups = len(optimizer.param_groups)
-
-        super().__init__(optimizer, last_epoch, verbose)
-
-    def get_lr(self) -> float:
-        lr = self.base_lr * calc_lr(
-            self._step_count, self.dim_embed, self.warmup_steps
-        )
-        return [lr] * self.num_param_groups
-
-    def set_step(self, step: int):
-        self._step_count = step
 
 
 def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
@@ -175,6 +142,18 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--optimizer-name",
+        type=str,
+        default="ScaledAdam",
+        help="The optimizer.",
+    )
+    parser.add_argument(
+        "--scheduler-name",
+        type=str,
+        default="Eden",
+        help="The scheduler.",
+    )
+    parser.add_argument(
         "--base-lr", type=float, default=0.05, help="The base learning rate."
     )
     parser.add_argument(
@@ -183,12 +162,6 @@ def get_parser():
         default=5000,
         help="""Number of steps that affects how rapidly the learning rate
         decreases. We suggest not to change this.""",
-    )
-    parser.add_argument(
-        "--optimizer-name",
-        type=str,
-        default="ScaledAdam",
-        help="The optimizer.",
     )
 
     parser.add_argument(
@@ -811,16 +784,6 @@ def run(rank, world_size, args):
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
-    def _get_scheduler(optimizer):
-        scheduler = Scheduler(
-            params.base_lr,
-            optimizer,
-            dim_embed=params.decoder_dim,
-            warmup_steps=params.warmup_steps,
-        )
-        scheduler.set_step(params.start_batch or params.batch_idx_train)
-        return scheduler
-
     if params.optimizer_name == "ScaledAdam":
         parameters_names = []
         parameters_names.append(
@@ -834,14 +797,12 @@ def run(rank, world_size, args):
             parameters_names=parameters_names,
             show_dominant_parameters=False,
         )
-        scheduler = Eden(optimizer, params.warmup_steps, 4)
     elif params.optimizer_name == "Eve":
         optimizer = Eve(
             model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.98),
         )
-        scheduler = Eden(optimizer, params.warmup_steps, 4)
     elif params.optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
             model.parameters(),
@@ -850,7 +811,6 @@ def run(rank, world_size, args):
             eps=1e-8,
             weight_decay=1e-2,
         )
-        scheduler = _get_scheduler(optimizer)
     elif params.optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
             model.parameters(),
@@ -858,10 +818,10 @@ def run(rank, world_size, args):
             betas=(0.9, 0.95),
             eps=1e-8,
         )
-        scheduler = _get_scheduler(optimizer)
     else:
         raise NotImplementedError()
 
+    scheduler = get_scheduler(params, optimizer)
     optimizer.zero_grad()
 
     checkpoints = load_checkpoint_if_available(
