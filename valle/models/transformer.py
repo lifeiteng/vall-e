@@ -288,8 +288,8 @@ class Transformer(nn.Module):
             )
             predict = self.predict_layer(y_dec[:, -1:])
 
-            # TODO: add stop predictor
-            if y.shape[1] > x_lens.max() * 10:
+            logits = self.stop_layer(y_dec[:, -1:]) > 0  # sigmoid(0.0) = 0.5
+            if y.shape[1] > x_lens.max() * 10 or all(logits.cpu().numpy()):
                 print(f"EOS [{x_lens[0]} -> {y.shape[1]}]")
                 break
 
