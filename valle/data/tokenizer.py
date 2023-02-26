@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Pattern, Union
+from typing import Any, Dict, List, Optional, Pattern, Union
 
 import numpy as np
 import torch
@@ -108,15 +108,18 @@ class AudioTokenizer:
 
     def __init__(
         self,
+        device: Any = None,
     ) -> None:
         # Instantiate a pretrained EnCodec model
         model = EncodecModel.encodec_model_24khz()
         model.set_target_bandwidth(6.0)
         remove_encodec_weight_norm(model)
 
-        device = torch.device("cpu")
-        if torch.cuda.is_available():
-            device = torch.device("cuda:0")
+        if not device:
+            device = torch.device("cpu")
+            if torch.cuda.is_available():
+                device = torch.device("cuda:0")
+
         self._device = device
 
         self.codec = model.to(device)
@@ -150,7 +153,6 @@ def tokenize_audio(tokenizer: AudioTokenizer, audio_path: str):
 class AudioTokenConfig:
     frame_shift: Seconds = 320.0 / 24000
     num_quantizers: int = 8
-    tokenizer: AudioTokenizer = AudioTokenizer()
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -164,27 +166,29 @@ class AudioTokenExtractor(FeatureExtractor):
     name = "encodec"
     config_type = AudioTokenConfig
 
+    def __init__(self, config: Optional[Any] = None):
+        super(AudioTokenExtractor, self).__init__(config)
+        self.tokenizer = AudioTokenizer()
+
     def extract(
         self, samples: Union[np.ndarray, torch.Tensor], sampling_rate: int
     ) -> np.ndarray:
         if not isinstance(samples, torch.Tensor):
             samples = torch.from_numpy(samples)
-        if sampling_rate != self.config.tokenizer.sample_rate:
+        if sampling_rate != self.tokenizer.sample_rate:
             samples = convert_audio(
                 samples,
                 sampling_rate,
-                self.config.tokenizer.sample_rate,
-                self.config.tokenizer.channels,
+                self.tokenizer.sample_rate,
+                self.tokenizer.channels,
             )
         if len(samples.shape) == 2:
             samples = samples.unsqueeze(0)
         else:
             raise ValueError()
 
-        device = self.config.tokenizer.device
-        encoded_frames = self.config.tokenizer.encode(
-            samples.detach().to(device)
-        )
+        device = self.tokenizer.device
+        encoded_frames = self.tokenizer.encode(samples.detach().to(device))
         codes = encoded_frames[0][0]  # [B, n_q, T]
         if True:
             duration = round(samples.shape[-1] / sampling_rate, ndigits=12)
