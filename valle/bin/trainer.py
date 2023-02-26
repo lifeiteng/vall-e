@@ -594,15 +594,15 @@ def train_one_epoch(
                         # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+
                     for k in range(params.accumulate_grad_steps):
                         if isinstance(scheduler, Eden):
                             scheduler.step_batch(params.batch_idx_train)
                         else:
                             scheduler.step()
-
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
 
             set_batch_count(model, params.batch_idx_train)
         except:  # noqa
