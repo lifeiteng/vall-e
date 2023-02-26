@@ -173,14 +173,14 @@ class VALLF(nn.Module):
         self.ar_accuracy_metric = MulticlassAccuracy(
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
-            average="micro",
+            multidim_average="samplewise",
             ignore_index=NUM_AUDIO_TOKENS,
         )
 
         self.nar_accuracy_metric = MulticlassAccuracy(
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
-            average="micro",
+            multidim_average="samplewise",
             ignore_index=NUM_AUDIO_TOKENS,
         )
 
@@ -273,7 +273,7 @@ class VALLF(nn.Module):
         total_loss = F.cross_entropy(logits, targets, reduction=reduction)
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
-        )
+        ).mean() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -300,13 +300,16 @@ class VALLF(nn.Module):
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
-        metrics["NarTop10Accuracy"] = self.nar_accuracy_metric(
-            F.pad(
-                logits.detach(),
-                (0, 0, 1, 0, 0, 0),
-                value=logits.min().cpu().item(),
-            ),
-            targets,
+        metrics["NarTop10Accuracy"] = (
+            self.nar_accuracy_metric(
+                F.pad(
+                    logits.detach(),
+                    (0, 0, 1, 0, 0, 0),
+                    value=logits.min().cpu().item(),
+                ),
+                targets,
+            ).mean()
+            * y_lens.sum().type(torch.float32)
         )
 
         return ((x, codes), total_loss / 2.0, metrics)
@@ -535,7 +538,7 @@ class VALLE(VALLF):
 
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
-        )
+        ).mean() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -565,13 +568,16 @@ class VALLE(VALLF):
             ignore_index=NUM_AUDIO_TOKENS,
             reduction=reduction,
         )
-        metrics["NarTop10Accuracy"] = self.nar_accuracy_metric(
-            F.pad(
-                logits.detach(),
-                (0, 0, 1, 0, 0, 0),
-                value=logits.min().cpu().item(),
-            ),
-            targets,
+        metrics["NarTop10Accuracy"] = (
+            self.nar_accuracy_metric(
+                F.pad(
+                    logits.detach(),
+                    (0, 0, 1, 0, 0, 0),
+                    value=logits.min().cpu().item(),
+                ),
+                targets,
+            ).mean()
+            * y_lens.sum().type(torch.float32)
         )
 
         return ((x, codes), total_loss / 2.0, metrics)
