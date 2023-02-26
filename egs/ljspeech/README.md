@@ -3,6 +3,7 @@
 Train TransformerTTS
 * [Neural Speech Synthesis with Transformer Network](https://arxiv.org/abs/1809.08895)
 
+
 ## Install deps
 ```
 pip install librosa==0.8.1
@@ -15,18 +16,20 @@ pip install librosa==0.8.1
 ```
 cd egs/ljspeech
 
-# Those stages are very time-consuming
-bash run.sh --stage -1 --stop-stage 3
+bash run.sh --stage -1 --stop-stage 3 \
+    --audio_extractor "Fbank" \
+    --audio_feats_dir data/fbank
 ```
 
 
 ## Training
 
 ```
-python3 bin/trainer.py --max-duration 100 --use-fp16 false \
-      --bucketing-sampler true --save-every-n 5000 \
-      --model-name Transformer --decoder-dim 384 --nhead 8 --num-decoder-layers 6 \
-      --base-lr 0.05 --warmup-steps 5000 --optimizer-name ScaledAdam \
+python3 bin/trainer.py --max-duration 100 --use-fp16 false --save-every-n 1000 \
+      --model-name Transformer --norm-first true --add-prenet false \
+      --decoder-dim 384 --nhead 8 --num-decoder-layers 6  \
+      --base-lr 1 --warmup-steps 4000 --optimizer-name AdamW --scheduler-name Noam \
+      --num-epochs 10 --start-epoch 1 \
       --on-the-fly-feats false --manifest-dir data/fbank \
       --text-tokens data/fbank/unique_text_tokens.k2symbols \
       --exp-dir exp_seqtts/Transformer_Dim384H8
@@ -37,7 +40,8 @@ python3 bin/trainer.py --max-duration 100 --use-fp16 false \
 
 ```
 python3 bin/infer.py \
-    --model-name Transformer --decoder-dim 384 --nhead 8 --num-decoder-layers 6 \
+    --model-name Transformer --norm-first true --add-prenet false \
+    --decoder-dim 384 --nhead 8 --num-decoder-layers 6  \
     --text-prompts "" \
     --audio-prompts "" \
     --text-tokens data/fbank/unique_text_tokens.k2symbols \
