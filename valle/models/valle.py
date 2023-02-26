@@ -173,6 +173,7 @@ class VALLF(nn.Module):
         self.ar_accuracy_metric = MulticlassAccuracy(
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
+            average="micro",
             multidim_average="samplewise",
             ignore_index=NUM_AUDIO_TOKENS,
         )
@@ -180,6 +181,7 @@ class VALLF(nn.Module):
         self.nar_accuracy_metric = MulticlassAccuracy(
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
+            average="micro",
             multidim_average="samplewise",
             ignore_index=NUM_AUDIO_TOKENS,
         )
