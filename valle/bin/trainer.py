@@ -692,7 +692,7 @@ def train_one_epoch(
                         params.batch_idx_train,
                     )
 
-        if batch_idx % params.valid_interval == 0:
+        if params.batch_idx_train % params.valid_interval == 0:
             logging.info("Computing validation loss")
             with torch.cuda.amp.autocast(enabled=params.use_fp16):
                 valid_info = compute_validation_loss(
