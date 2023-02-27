@@ -22,14 +22,16 @@ dl_dir=$PWD/download
 # dataset_parts="-p dev-clean -p test-clean"  # debug
 dataset_parts="--dataset-parts all"  # all
 
-model_name="valle"
 max_duration=40
 use_fp16=true
+
+model_name="valle"
+decoder_dim=1024
+nhead=16
 num_decoder_layers=12
 
 accumulate_grad_steps=1
-base_lr=2.0
-
+base_lr=1.0
 
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
@@ -128,7 +130,10 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
     --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
     --max-duration ${max_duration} --use-fp16 ${use_fp16} \
-    --decoder-dim 1024 --nhead 16 --num-decoder-layers ${num_decoder_layers} \
+    --model-name "${model_name}" \
+    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
-    --model-name "${model_name}" --exp-dir exp/${model_name}
+    --warmup-steps 4000 --optimizer-name AdamW --scheduler-name Noam \
+    --num-epochs 100 --start-epoch 1 --start-batch 0 \
+    --exp-dir exp/${model_name}
 fi
