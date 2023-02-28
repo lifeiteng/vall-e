@@ -115,12 +115,12 @@ class VALLF(nn.Module):
         self.text_position = SinePositionalEmbedding(
             d_model,
             dropout=0.1,
-            scale=isinstance(self.text_prenet, nn.Identity),
+            scale=False,
         )
         self.audio_position = SinePositionalEmbedding(
             d_model,
             dropout=0.1,
-            scale=isinstance(self.audio_prenet, nn.Identity),
+            scale=False,
         )
 
         self.stage_embeddings = nn.ModuleList(

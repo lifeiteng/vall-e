@@ -49,7 +49,7 @@ class TokenEmbedding(nn.Module):
 
 class SinePositionalEmbedding(nn.Module):
     def __init__(
-        self, dim_model: int, dropout: float = 0.0, scale: bool = True
+        self, dim_model: int, dropout: float = 0.0, scale: bool = False
     ):
         super().__init__()
         self.dim_model = dim_model

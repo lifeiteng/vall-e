@@ -87,7 +87,7 @@ class Transformer(nn.Module):
         self.encoder_position = SinePositionalEmbedding(
             d_model,
             dropout=0.1,
-            scale=isinstance(self.encoder_prenet, nn.Identity),
+            scale=False,
         )
         self.decoder_position = SinePositionalEmbedding(
             d_model, dropout=0.1, scale=False
