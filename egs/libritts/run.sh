@@ -23,7 +23,7 @@ dl_dir=$PWD/download
 dataset_parts="--dataset-parts all"  # all
 
 max_duration=40
-use_fp16=true
+use_fp16=false
 
 model_name="valle"
 decoder_dim=1024
@@ -31,10 +31,14 @@ nhead=16
 num_decoder_layers=12
 
 accumulate_grad_steps=1
-base_lr=1.0
+base_lr=0.5
+
+num_epochs=10
 
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
+
+exp_suffix=""
 
 . shared/parse_options.sh || exit 1
 
@@ -49,9 +53,8 @@ log() {
   echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-log "dl_dir: $dl_dir"
-
 if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
+  log "dl_dir: $dl_dir"
   log "Stage 0: Download data"
 
   # If you have pre-downloaded it to /path/to/LibriTTS,
@@ -130,10 +133,10 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
     --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
     --max-duration ${max_duration} --use-fp16 ${use_fp16} \
-    --model-name "${model_name}" \
+    --model-name "${model_name}" --norm-first true --add-prenet false \
     --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
     --warmup-steps 4000 --optimizer-name AdamW --scheduler-name Noam \
-    --num-epochs 100 --start-epoch 1 --start-batch 0 \
-    --exp-dir exp/${model_name}
+    --num-epochs ${num_epochs} --start-epoch 1 --start-batch 0 \
+    --exp-dir exp/${model_name}${exp_suffix}
 fi
