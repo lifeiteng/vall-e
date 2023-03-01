@@ -102,7 +102,7 @@ class TtsDataModule:
         group.add_argument(
             "--num-buckets",
             type=int,
-            default=20,
+            default=10,
             help="The number of buckets for the DynamicBucketingSampler"
             "(you might want to increase it for larger datasets).",
         )

@@ -230,6 +230,13 @@ def get_parser():
         help="Whether to use half precision training.",
     )
 
+    parser.add_argument(
+        "--filter-max-duration",
+        type=int,
+        default=20.0,
+        help="Keep only utterances with duration < this.",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -724,7 +731,7 @@ def train_one_epoch(
 def filter_short_and_long_utterances(cuts: CutSet, max_duration) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
-        if c.duration < 0.6 or c.duration > min(20.0, max_duration):
+        if c.duration < 0.6 or c.duration > max_duration:
             # logging.warning(
             #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             # )
@@ -862,10 +869,10 @@ def run(rank, world_size, args):
     valid_cuts = dataset.dev_cuts()
 
     train_cuts = filter_short_and_long_utterances(
-        train_cuts, params.max_duration
+        train_cuts, params.filter_max_duration
     )
     valid_cuts = filter_short_and_long_utterances(
-        valid_cuts, params.max_duration
+        valid_cuts, params.filter_max_duration
     )
 
     train_dl = dataset.train_dataloaders(
