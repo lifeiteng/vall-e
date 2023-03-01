@@ -24,7 +24,9 @@ dataset_parts="--dataset-parts all"  # all
 
 max_duration=40
 filter_max_duration=20
+
 use_fp16=false
+dtype="float32"
 
 model_name="valle"
 decoder_dim=1024
@@ -131,9 +133,13 @@ fi
 if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
   log "Stage 4: Train ${model_name}"
 
+  if ${use_fp16};then
+    dtype="float16"
+  fi
+
   python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
     --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
-    --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --use-fp16 ${use_fp16} \
+    --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --dtype ${dtype} \
     --model-name "${model_name}" --norm-first true --add-prenet false \
     --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \

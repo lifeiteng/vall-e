@@ -23,7 +23,7 @@ python3 bin/trainer.py \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
     --max-duration 40 --model-name valle \
     --exp-dir exp/valle
-    --use-fp16 1 \
+    --dtype "bfloat16" \
 """
 
 import argparse
@@ -224,10 +224,10 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--use-fp16",
-        type=str2bool,
-        default=False,
-        help="Whether to use half precision training.",
+        "--dtype",
+        type=str,
+        default="float32",
+        help="Training dtype: float32 bfloat16 float16.",
     )
 
     parser.add_argument(
@@ -561,165 +561,189 @@ def train_one_epoch(
     tot_loss = MetricsTracker()
     iter_dl = iter(train_dl)
 
+    dtype = torch.float32
+    if params.dtype in ["bfloat16", "bf16"]:
+        dtype = torch.bfloat16
+    elif params.dtype in ["float16", "fp16"]:
+        dtype = torch.float16
+
     batch_idx = 0
-    while True:
-        try:
-            batch = next(iter_dl)
-        except StopIteration:
-            logging.info("Reaches end of dataloader.")
-            if params.batch_idx_train % params.accumulate_grad_steps:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-            break
+    with torch.cuda.amp.autocast(dtype=dtype):
+        while True:
+            try:
+                batch = next(iter_dl)
+            except StopIteration:
+                logging.info("Reaches end of dataloader.")
+                if params.batch_idx_train % params.accumulate_grad_steps:
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+                break
 
-        batch_idx += 1
+            batch_idx += 1
 
-        params.batch_idx_train += 1
-        batch_size = len(batch["text"])
+            params.batch_idx_train += 1
+            batch_size = len(batch["text"])
 
-        try:
-            with torch.cuda.amp.autocast(enabled=params.use_fp16):
+            try:
                 _, loss, loss_info = compute_loss(
                     params=params,
                     model=model,
                     batch=batch,
                     is_training=True,
                 )
-            # summary stats
-            tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info
+                # summary stats
+                tot_loss = (
+                    tot_loss * (1 - 1 / params.reset_interval)
+                ) + loss_info
 
-            # NOTE: We use reduction==sum and loss is computed over utterances
-            # in the batch and there is no normalization to it so far.
+                # NOTE: We use reduction==sum and loss is computed over utterances
+                # in the batch and there is no normalization to it so far.
 
-            scaler.scale(loss).backward()
-            if params.batch_idx_train >= params.accumulate_grad_steps:
-                if params.batch_idx_train % params.accumulate_grad_steps == 0:
-                    if params.optimizer_name not in ["ScaledAdam", "Eve"]:
-                        # Unscales the gradients of optimizer's assigned params in-place
-                        scaler.unscale_(optimizer)
-                        # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scaler.scale(loss).backward()
+                if params.batch_idx_train >= params.accumulate_grad_steps:
+                    if (
+                        params.batch_idx_train % params.accumulate_grad_steps
+                        == 0
+                    ):
+                        if params.optimizer_name not in ["ScaledAdam", "Eve"]:
+                            # Unscales the gradients of optimizer's assigned params in-place
+                            scaler.unscale_(optimizer)
+                            # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
+                            torch.nn.utils.clip_grad_norm_(
+                                model.parameters(), 1.0
+                            )
 
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
+                        scaler.step(optimizer)
+                        scaler.update()
+                        optimizer.zero_grad()
 
-                    for k in range(params.accumulate_grad_steps):
-                        if isinstance(scheduler, Eden):
-                            scheduler.step_batch(params.batch_idx_train)
-                        else:
-                            scheduler.step()
+                        for k in range(params.accumulate_grad_steps):
+                            if isinstance(scheduler, Eden):
+                                scheduler.step_batch(params.batch_idx_train)
+                            else:
+                                scheduler.step()
 
-            set_batch_count(model, params.batch_idx_train)
-        except:  # noqa
-            display_and_save_batch(batch, params=params)
-            raise
+                set_batch_count(model, params.batch_idx_train)
+            except:  # noqa
+                display_and_save_batch(batch, params=params)
+                raise
 
-        if (
-            rank == 0
-            and params.batch_idx_train > 0
-            and params.batch_idx_train % params.average_period == 0
-        ):
-            update_averaged_model(
-                params=params,
-                model_cur=model,
-                model_avg=model_avg,
-            )
-
-        if (
-            params.batch_idx_train > 0
-            and params.batch_idx_train % params.save_every_n == 0
-        ):
-            save_checkpoint_with_global_batch_idx(
-                out_dir=params.exp_dir,
-                global_batch_idx=params.batch_idx_train,
-                model=model,
-                model_avg=model_avg,
-                params=params,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                sampler=train_dl.sampler,
-                scaler=scaler,
-                rank=rank,
-            )
-            remove_checkpoints(
-                out_dir=params.exp_dir,
-                topk=params.keep_last_k,
-                rank=rank,
-            )
-
-        if batch_idx % 100 == 0 and params.use_fp16:
-            # If the grad scale was less than 1, try increasing it.    The _growth_interval
-            # of the grad scaler is configurable, but we can't configure it to have different
-            # behavior depending on the current grad scale.
-            cur_grad_scale = scaler._scale.item()
-            if cur_grad_scale < 1.0 or (
-                cur_grad_scale < 8.0 and batch_idx % 400 == 0
+            if (
+                rank == 0
+                and params.batch_idx_train > 0
+                and params.batch_idx_train % params.average_period == 0
             ):
-                scaler.update(cur_grad_scale * 2.0)
-
-            if cur_grad_scale < 0.01:
-                logging.warning(f"Grad scale is small: {cur_grad_scale}")
-            if cur_grad_scale < 1.0e-05:
-                raise RuntimeError(
-                    f"grad_scale is too small, exiting: {cur_grad_scale}"
+                update_averaged_model(
+                    params=params,
+                    model_cur=model,
+                    model_avg=model_avg,
                 )
 
-        if batch_idx % params.log_interval == 0:
-            cur_lr = scheduler.get_last_lr()[0]
-            cur_grad_scale = scaler._scale.item() if params.use_fp16 else 1.0
-
-            logging.info(
-                f"Epoch {params.cur_epoch}, "
-                f"batch {batch_idx}, train_loss[{loss_info}], "
-                f"tot_loss[{tot_loss}], "
-                f"batch size: {batch_size}, "
-                f"lr: {cur_lr:.2e}"
-                + (f", grad_scale: {cur_grad_scale}" if params.use_fp16 else "")
-            )
-
-            if tb_writer is not None:
-                tb_writer.add_scalar(
-                    "train/learning_rate", cur_lr, params.batch_idx_train
+            if (
+                params.batch_idx_train > 0
+                and params.batch_idx_train % params.save_every_n == 0
+            ):
+                save_checkpoint_with_global_batch_idx(
+                    out_dir=params.exp_dir,
+                    global_batch_idx=params.batch_idx_train,
+                    model=model,
+                    model_avg=model_avg,
+                    params=params,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    sampler=train_dl.sampler,
+                    scaler=scaler,
+                    rank=rank,
+                )
+                remove_checkpoints(
+                    out_dir=params.exp_dir,
+                    topk=params.keep_last_k,
+                    rank=rank,
                 )
 
-                loss_info.write_summary(
-                    tb_writer,
-                    "train/current_",
-                    params.batch_idx_train,
-                )
-                tot_loss.write_summary(
-                    tb_writer, "train/tot_", params.batch_idx_train
-                )
-                tot_loss.write_summary(
-                    tb_writer, "train/tot_", params.batch_idx_train
-                )
-                if params.use_fp16:
-                    tb_writer.add_scalar(
-                        "train/grad_scale",
-                        cur_grad_scale,
-                        params.batch_idx_train,
+            if batch_idx % 100 == 0 and params.dtype in ["float16", "fp16"]:
+                # If the grad scale was less than 1, try increasing it.    The _growth_interval
+                # of the grad scaler is configurable, but we can't configure it to have different
+                # behavior depending on the current grad scale.
+                cur_grad_scale = scaler._scale.item()
+                if cur_grad_scale < 1.0 or (
+                    cur_grad_scale < 8.0 and batch_idx % 400 == 0
+                ):
+                    scaler.update(cur_grad_scale * 2.0)
+
+                if cur_grad_scale < 0.01:
+                    logging.warning(f"Grad scale is small: {cur_grad_scale}")
+                if cur_grad_scale < 1.0e-05:
+                    raise RuntimeError(
+                        f"grad_scale is too small, exiting: {cur_grad_scale}"
                     )
 
-        if params.batch_idx_train % params.valid_interval == 0:
-            logging.info("Computing validation loss")
-            with torch.cuda.amp.autocast(enabled=params.use_fp16):
-                valid_info = compute_validation_loss(
-                    params=params,
-                    model=model,
-                    valid_dl=valid_dl,
-                    world_size=world_size,
+            if batch_idx % params.log_interval == 0:
+                cur_lr = scheduler.get_last_lr()[0]
+                cur_grad_scale = (
+                    scaler._scale.item()
+                    if params.dtype in ["float16", "fp16"]
+                    else 1.0
                 )
-            model.train()
-            logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
-            logging.info(
-                f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-            )
-            if tb_writer is not None:
-                valid_info.write_summary(
-                    tb_writer, "train/valid_", params.batch_idx_train
+
+                logging.info(
+                    f"Epoch {params.cur_epoch}, "
+                    f"batch {batch_idx}, train_loss[{loss_info}], "
+                    f"tot_loss[{tot_loss}], "
+                    f"batch size: {batch_size}, "
+                    f"lr: {cur_lr:.2e}"
+                    + (
+                        f", grad_scale: {cur_grad_scale}"
+                        if params.dtype in ["float16", "fp16"]
+                        else ""
+                    )
                 )
+
+                if tb_writer is not None:
+                    tb_writer.add_scalar(
+                        "train/learning_rate", cur_lr, params.batch_idx_train
+                    )
+
+                    loss_info.write_summary(
+                        tb_writer,
+                        "train/current_",
+                        params.batch_idx_train,
+                    )
+                    tot_loss.write_summary(
+                        tb_writer, "train/tot_", params.batch_idx_train
+                    )
+                    tot_loss.write_summary(
+                        tb_writer, "train/tot_", params.batch_idx_train
+                    )
+                    if params.dtype in ["float16", "fp16"]:
+                        tb_writer.add_scalar(
+                            "train/grad_scale",
+                            cur_grad_scale,
+                            params.batch_idx_train,
+                        )
+
+            if params.batch_idx_train % params.valid_interval == 0:
+                logging.info("Computing validation loss")
+                with torch.cuda.amp.autocast(dtype=dtype):
+                    valid_info = compute_validation_loss(
+                        params=params,
+                        model=model,
+                        valid_dl=valid_dl,
+                        world_size=world_size,
+                    )
+                model.train()
+                logging.info(
+                    f"Epoch {params.cur_epoch}, validation: {valid_info}"
+                )
+                logging.info(
+                    f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+                )
+
+                if tb_writer is not None:
+                    valid_info.write_summary(
+                        tb_writer, "train/valid_", params.batch_idx_train
+                    )
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
@@ -888,7 +912,9 @@ def run(rank, world_size, args):
             params=params,
         )
 
-    scaler = GradScaler(enabled=params.use_fp16, init_scale=1.0)
+    scaler = GradScaler(
+        enabled=(params.dtype in ["fp16", "float16"]), init_scale=1.0
+    )
     if checkpoints and "grad_scaler" in checkpoints:
         logging.info("Loading grad scaler state dict")
         scaler.load_state_dict(checkpoints["grad_scaler"])
@@ -967,10 +993,17 @@ def scan_pessimistic_batches_for_oom(
         "Sanity check -- see if any of the batches in epoch 1 would cause OOM."
     )
     batches, crit_values = find_pessimistic_batches(train_dl.sampler)
+
+    dtype = torch.float32
+    if params.dtype in ["bfloat16", "bf16"]:
+        dtype = torch.bfloat16
+    elif params.dtype in ["float16", "fp16"]:
+        dtype = torch.float16
+
     for criterion, cuts in batches.items():
         batch = train_dl.dataset[cuts]
         try:
-            with torch.cuda.amp.autocast(enabled=params.use_fp16):
+            with torch.cuda.amp.autocast(dtype=dtype):
                 _, loss, _ = compute_loss(
                     params=params,
                     model=model,

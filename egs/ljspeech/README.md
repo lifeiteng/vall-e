@@ -25,7 +25,7 @@ bash run.sh --stage -1 --stop-stage 3 \
 ## Training
 
 ```
-python3 bin/trainer.py --max-duration 100 --use-fp16 false --save-every-n 1000 \
+python3 bin/trainer.py --max-duration 100 --save-every-n 1000 \
       --model-name Transformer --norm-first true --add-prenet false \
       --decoder-dim 384 --nhead 8 --num-decoder-layers 6  \
       --base-lr 1 --warmup-steps 4000 --optimizer-name AdamW --scheduler-name Noam \
