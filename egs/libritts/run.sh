@@ -23,6 +23,7 @@ dl_dir=$PWD/download
 dataset_parts="--dataset-parts all"  # all
 
 max_duration=40
+filter_max_duration=20
 use_fp16=false
 
 model_name="valle"
@@ -31,7 +32,7 @@ nhead=16
 num_decoder_layers=12
 
 accumulate_grad_steps=1
-base_lr=0.5
+base_lr=0.05
 
 num_epochs=10
 
@@ -132,11 +133,10 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
 
   python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
     --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
-    --max-duration ${max_duration} --use-fp16 ${use_fp16} \
+    --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --use-fp16 ${use_fp16} \
     --model-name "${model_name}" --norm-first true --add-prenet false \
     --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
-    --warmup-steps 4000 --optimizer-name AdamW --scheduler-name Noam \
     --num-epochs ${num_epochs} --start-epoch 1 --start-batch 0 \
     --exp-dir exp/${model_name}${exp_suffix}
 fi
