@@ -174,7 +174,7 @@ class VALLF(nn.Module):
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
             average="micro",
-            multidim_average="samplewise",
+            multidim_average="global",
             ignore_index=NUM_AUDIO_TOKENS,
         )
 
@@ -182,7 +182,7 @@ class VALLF(nn.Module):
             NUM_AUDIO_TOKENS + 1,
             top_k=10,
             average="micro",
-            multidim_average="samplewise",
+            multidim_average="global",
             ignore_index=NUM_AUDIO_TOKENS,
         )
 
@@ -275,7 +275,7 @@ class VALLF(nn.Module):
         total_loss = F.cross_entropy(logits, targets, reduction=reduction)
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
-        ).mean() * y_lens.sum().type(torch.float32)
+        ).item() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -310,7 +310,7 @@ class VALLF(nn.Module):
                     value=logits.min().cpu().item(),
                 ),
                 targets,
-            ).mean()
+            ).item()
             * y_lens.sum().type(torch.float32)
         )
 
@@ -540,7 +540,7 @@ class VALLE(VALLF):
 
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
-        ).mean() * y_lens.sum().type(torch.float32)
+        ).item() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
         train_stage = self.rng.choices(
@@ -578,7 +578,7 @@ class VALLE(VALLF):
                     value=logits.min().cpu().item(),
                 ),
                 targets,
-            ).mean()
+            ).item()
             * y_lens.sum().type(torch.float32)
         )
 
