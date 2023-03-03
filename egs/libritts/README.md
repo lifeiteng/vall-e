@@ -71,23 +71,21 @@ Speech duration statistics:
 ## Training
 
 ```
-# 12G GPU --max-duration 24 --num-decoder-layers 6
-bash run.sh --stage 4 --stop-stage 4 \
-    --num-decoder-layers 12 \
-    --max-duration 40 --use-fp16 true
+# 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
+bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
+    --num-decoder-layers 12
 ```
 ![train](./demos/train.png)
 
 
 ## Inference
-* checkpoint `exp/valle/epoch-10.pt` will be added.
 
 ```
-python3 bin/infer.py \
-    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --model-name valle \
-    --text-prompts "Go to her." \
-    --audio-prompts ./prompts/61_70970_000007_000001.wav \
+python3 bin/infer.py --output-dir infer/demos \
+    --model-name valle --norm-first true --add-prenet false \
+    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12  \
+    --text-prompts "KNOT one point one five miles per hour." \
+    --audio-prompts ./prompts/8463_294825_000043_000000.wav \
     --text "To get up and running quickly just follow the steps below." \
-    --output-dir infer/demos \
-    --checkpoint exp/valle/epoch-10.pt
+    --checkpoint=expX4/valle/checkpoint-400000.pt
 ```
