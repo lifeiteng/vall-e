@@ -125,7 +125,7 @@ class Transformer(nn.Module):
         self.stop_layer = nn.Linear(d_model, 1)
 
         self.stop_accuracy_metric = BinaryAccuracy(
-            threshold=0.5, multidim_average="samplewise"
+            threshold=0.5, multidim_average="global"
         )
 
     #     self.apply(self._init_weights)
@@ -227,7 +227,7 @@ class Transformer(nn.Module):
             y_mask.type(torch.int64),
         )
         # icefall MetricsTracker.norm_items()
-        metrics["stop_accuracy"] = stop_accuracy.mean() * y_lens.sum().type(
+        metrics["stop_accuracy"] = stop_accuracy.item() * y_lens.sum().type(
             torch.float32
         )
 
