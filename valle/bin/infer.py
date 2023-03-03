@@ -121,17 +121,9 @@ def main():
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    text_prompts, audio_prompts = [], []
+    text_prompts = " ".join(args.text_prompts.split("|"))
 
-    if args.text_prompts:
-        text_prompts, text_prompts_lens = text_collater(
-            [
-                tokenize_text(
-                    text_tokenizer, text=" ".join(args.text_prompts.split("|"))
-                )
-            ]
-        )
-
+    audio_prompts = []
     if args.audio_prompts:
         for n, audio_file in enumerate(args.audio_prompts.split("|")):
             encoded_frames = tokenize_audio(audio_tokenizer, audio_file)
@@ -150,14 +142,12 @@ def main():
     for n, text in enumerate(args.text.split("|")):
         logging.info(f"synthesize text: {text}")
         text_tokens, text_tokens_lens = text_collater(
-            [tokenize_text(text_tokenizer, text=text)]
+            [
+                tokenize_text(
+                    text_tokenizer, text=f"{text_prompts} {text}".strip()
+                )
+            ]
         )
-
-        if text_prompts != []:
-            text_tokens = torch.concat(
-                [text_prompts[:, :-1], text_tokens[:, 1:]], dim=-1
-            )
-            text_tokens_lens += text_prompts_lens - 2
 
         # synthesis
         encoded_frames = model.inference(
