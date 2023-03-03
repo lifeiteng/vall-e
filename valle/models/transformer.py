@@ -238,6 +238,7 @@ class Transformer(nn.Module):
         x: torch.Tensor,
         x_lens: torch.Tensor,
         y: Any = None,
+        **kwargs,
     ) -> torch.Tensor:
         """
         Args:
@@ -290,7 +291,9 @@ class Transformer(nn.Module):
 
             logits = self.stop_layer(y_dec[:, -1:]) > 0  # sigmoid(0.0) = 0.5
             if y.shape[1] > x_lens.max() * 10 or all(logits.cpu().numpy()):
-                print(f"EOS [{x_lens[0]} -> {y.shape[1]}]")
+                print(
+                    f"TransformerTTS EOS [Text {x_lens[0]} -> Audio {y.shape[1]}]"
+                )
                 break
 
             y = torch.concat([y, predict], dim=1)

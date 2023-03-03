@@ -92,6 +92,20 @@ def get_args():
         help="Path to the tokenized files.",
     )
 
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=-100,
+        help="Whether AR Decoder do top_k(if > 0) sampling.",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=1.0,
+        help="The temperature of AR Decoder top_k sampling.",
+    )
+
     return parser.parse_args()
 
 
@@ -154,6 +168,8 @@ def main():
             text_tokens.to(device),
             text_tokens_lens.to(device),
             audio_prompts,
+            top_k=args.top_k,
+            temperature=args.temperature,
         )
 
         if audio_prompts != []:
