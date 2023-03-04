@@ -117,10 +117,15 @@ class VALLF(nn.Module):
             dropout=0.1,
             scale=False,
         )
-        self.audio_position = SinePositionalEmbedding(
-            d_model,
-            dropout=0.1,
-            scale=False,
+        self.audio_positions = nn.ModuleList(
+            [
+                SinePositionalEmbedding(
+                    d_model,
+                    dropout=0.1,
+                    scale=False,
+                )
+                for i in range(8)
+            ]
         )
 
         self.stage_embeddings = nn.ModuleList(
@@ -255,7 +260,7 @@ class VALLF(nn.Module):
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
         y_emb = self.audio_prenet(y_emb)
-        y_pos = self.audio_position(y_emb)
+        y_pos = self.audio_positions[0](y_emb)
 
         y_len = y_lens.max()
         tgt_mask = torch.triu(
@@ -283,7 +288,9 @@ class VALLF(nn.Module):
         )[0]
         for i in range(0, train_stage - 1):
             # Formula (4) (5)
-            y_pos = y_pos + self.audio_embeddings[i + 1](codes[..., i + 1])
+            y_emb = y_emb + self.audio_embeddings[i + 1](codes[..., i + 1])
+
+        y_pos = self.audio_positions[train_stage](y_emb)
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
         y_dec, _ = self.nar_decoder(
@@ -362,7 +369,7 @@ class VALLF(nn.Module):
         while True:
             y_emb = self.audio_embeddings[0](y)
             y_emb = self.audio_prenet(y_emb)
-            y_pos = self.audio_position(y_emb)
+            y_pos = self.audio_positions[0](y_emb)
 
             tgt_mask = torch.triu(
                 torch.ones(
@@ -419,8 +426,9 @@ class VALLF(nn.Module):
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
-                y_pos[:, :prompts_len] += embedding_layer(prompts[..., i + 1])
-                y_pos[:, prompts_len:] += embedding_layer(samples)
+                y_emb[:, :prompts_len] += embedding_layer(prompts[..., i + 1])
+                y_emb[:, prompts_len:] += embedding_layer(samples)
+                y_pos = self.audio_positions[i + 1](y_emb)
 
         assert len(codes) == 8
         return torch.stack(codes, dim=-1)
@@ -495,8 +503,6 @@ class VALLE(VALLF):
         x = self.text_prenet(x)
         x = self.text_position(x)
 
-        total_loss, metrics = 0.0, {}
-
         y_mask = make_pad_mask(y_lens).to(y.device)
         y_mask_int = y_mask.type(torch.int64)
 
@@ -533,7 +539,7 @@ class VALLE(VALLF):
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
         y_emb = self.audio_embeddings[0](y)
         y_emb = self.audio_prenet(y_emb)
-        y_pos = self.audio_position(y_emb)
+        y_pos = self.audio_positions[0](y_emb)
 
         xy_pos = torch.concat([x, y_pos], dim=1)
 
@@ -550,6 +556,7 @@ class VALLE(VALLF):
         # total_loss = torch.sum(total_loss * loss_mask)
         total_loss = F.cross_entropy(logits, targets, reduction=reduction)
 
+        metrics = {}
         metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
             logits.detach(), targets
         ).item() * y_lens.sum().type(torch.float32)
@@ -562,9 +569,10 @@ class VALLE(VALLF):
             # Formula (4) (5)
             # xy_pos[:, x_len:] = xy_pos[:, x_len:] + embedding_layer(codes[..., i + 1])
             # xy_pos[:, x_len:] += embedding_layer(codes[..., i + 1])
-            y_pos = y_pos + self.audio_embeddings[i + 1](codes[..., i + 1])
+            y_emb = y_emb + self.audio_embeddings[i + 1](codes[..., i + 1])
+
+        y_pos = self.audio_positions[train_stage](y_emb)
         xy_pos = torch.concat([x, y_pos], dim=1)
-        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
         xy_dec, _ = self.nar_decoder(
             (xy_pos, self.stage_embeddings[train_stage].weight),
@@ -576,6 +584,7 @@ class VALLE(VALLF):
         )
 
         # loss
+        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
         total_loss += F.cross_entropy(
             logits,
             targets,
@@ -632,8 +641,9 @@ class VALLE(VALLF):
         x = self.text_prenet(x)
         x = self.text_position(x)
 
+        text_len = x_lens.max()
         prompts = y
-        prompts_len = x.shape[1] + y.shape[1]
+        prompts_len = y.shape[1]
 
         # AR Decoder
         # TODO: Managing decoder steps avoid repetitive computation
@@ -645,7 +655,7 @@ class VALLE(VALLF):
         while True:
             y_emb = self.audio_embeddings[0](y)
             y_emb = self.audio_prenet(y_emb)
-            y_pos = self.audio_position(y_emb)
+            y_pos = self.audio_positions[0](y_emb)
             xy_pos = torch.concat([x, y_pos], dim=1)
 
             y_len = y.shape[1]
@@ -687,7 +697,7 @@ class VALLE(VALLF):
                 if prompts.shape[1] == y.shape[1]:
                     y = torch.concat([y, samples], dim=1)
                     y_emb = self.audio_embeddings[0](y)
-                    y_pos = self.audio_position(y_emb)
+                    y_pos = self.audio_positions[0](y_emb)
                     xy_pos = torch.concat([x, y_pos], dim=1)
 
                 print(f"VALL-E EOS [{prompts.shape[1]} -> {y.shape[1]}]")
@@ -700,7 +710,7 @@ class VALLE(VALLF):
         #         prompts[..., k]
         #     )
 
-        codes = [y[:, prompts.shape[1] :]]
+        codes = [y[:, prompts_len:]]
         # Non-AR Decoders
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
@@ -711,16 +721,16 @@ class VALLE(VALLF):
             xy_dec, _ = self.nar_decoder(
                 (xy_pos, self.stage_embeddings[i + 1].weight)
             )
-            logits = predict_layer(xy_dec[:, prompts_len:])
+            logits = predict_layer(xy_dec[:, text_len + prompts_len :])
 
             samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
-                xy_pos[:, x_lens.max() : prompts_len] += embedding_layer(
-                    prompts[..., i + 1]
-                )
-                xy_pos[:, prompts_len:] += embedding_layer(samples)
+                y_emb[:, :prompts_len] += embedding_layer(prompts[..., i + 1])
+                y_emb[:, prompts_len:] += embedding_layer(samples)
+                y_pos = self.audio_positions[i + 1](y_emb)
+                xy_pos = torch.concat([x, y_pos], dim=1)
 
         assert len(codes) == 8
         return torch.stack(codes, dim=-1)
