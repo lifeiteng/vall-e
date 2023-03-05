@@ -57,7 +57,7 @@ class NoamScheduler(torch.optim.lr_scheduler._LRScheduler):
 
 def get_scheduler(params, optimizer):
     if params.scheduler_name.lower() == "eden":
-        scheduler = Eden(optimizer, params.warmup_steps, 4)
+        scheduler = Eden(optimizer, 5000, 4, warmup_batches=params.warmup_steps)
     elif params.scheduler_name.lower() == "noam":
         scheduler = NoamScheduler(
             params.base_lr,
@@ -66,7 +66,7 @@ def get_scheduler(params, optimizer):
             warmup_steps=params.warmup_steps,
         )
         # scheduler.set_step(params.start_batch or params.batch_idx_train)
-    elif params.scheduler_name.lower() == "noam":
+    elif params.scheduler_name.lower() == "cosine":
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             params.warmup_steps,
             optimizer,

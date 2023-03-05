@@ -159,7 +159,7 @@ def get_parser():
     parser.add_argument(
         "--warmup-steps",
         type=int,
-        default=5000,
+        default=200,
         help="""Number of steps that affects how rapidly the learning rate
         decreases. We suggest not to change this.""",
     )
