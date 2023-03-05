@@ -920,6 +920,8 @@ def run(rank, world_size, args):
             tb_writer.add_scalar("train/epoch", epoch, params.batch_idx_train)
 
         params.cur_epoch = epoch
+        if isinstance(scheduler, Eden):
+            scheduler.step_epoch(epoch)
 
         train_one_epoch(
             params=params,
