@@ -24,6 +24,7 @@ from torchmetrics.classification import MulticlassAccuracy
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 from valle.modules.transformer import (
     AdaptiveLayerNorm,
+    LayerNorm,
     TransformerDecoderLayer,
     TransformerEncoderLayer,
 )
@@ -142,10 +143,9 @@ class VALLF(nn.Module):
                 norm_first=norm_first,
             ),
             num_layers=num_layers,
-            norm=AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
-            if norm_first
-            else None,
+            norm=LayerNorm(d_model) if norm_first else None,
         )
+
         self.nar_decoder = decoder_cls(
             decoder_layer_cls(
                 d_model,
@@ -154,6 +154,7 @@ class VALLF(nn.Module):
                 dropout=0.1,
                 batch_first=True,
                 norm_first=norm_first,
+                adaptive_layer_norm=True,
             ),
             num_layers=num_layers,
             norm=AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
@@ -162,8 +163,11 @@ class VALLF(nn.Module):
         )
 
         self.predict_layers = nn.ModuleList(
-            [nn.Linear(d_model, NUM_AUDIO_TOKENS + 1)]
-            + [nn.Linear(d_model, NUM_AUDIO_TOKENS) for i in range(7)]
+            [nn.Linear(d_model, NUM_AUDIO_TOKENS + 1, bias=False)]
+            + [
+                nn.Linear(d_model, NUM_AUDIO_TOKENS, bias=False)
+                for i in range(7)
+            ]
         )
 
         # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
@@ -268,7 +272,7 @@ class VALLF(nn.Module):
             diagonal=1,
         )
         y_dec, _ = self.ar_decoder(
-            (y_pos, self.stage_embeddings[0].weight),
+            (y_pos, None),
             x,
             tgt_mask=tgt_mask,
             tgt_key_padding_mask=y_mask,
@@ -379,7 +383,7 @@ class VALLF(nn.Module):
             )
 
             y_dec, _ = self.ar_decoder(
-                (y_pos, self.stage_embeddings[0].weight),
+                (y_pos, None),
                 x,
                 tgt_mask=tgt_mask,
                 memory_mask=None,
@@ -544,7 +548,7 @@ class VALLE(VALLF):
         xy_pos = torch.concat([x, y_pos], dim=1)
 
         xy_dec, _ = self.ar_decoder(
-            (xy_pos, self.stage_embeddings[0].weight),
+            (xy_pos, None),
             mask=xy_attn_mask,
             src_key_padding_mask=xy_padding_mask,
             # is_causal=True,
@@ -676,7 +680,7 @@ class VALLE(VALLF):
             ).to(y.device)
 
             xy_dec, _ = self.ar_decoder(
-                (xy_pos, self.stage_embeddings[0].weight),
+                (xy_pos, None),
                 mask=xy_attn_mask,
             )
             logits = self.predict_layers[0](xy_dec[:, -1])
