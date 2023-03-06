@@ -148,6 +148,7 @@ class VALLF(nn.Module):
             num_layers=num_layers,
             norm=LayerNorm(d_model) if norm_first else None,
         )
+        self.num_heads = nhead
 
         self.nar_decoder = decoder_cls(
             decoder_layer_cls(
@@ -540,6 +541,19 @@ class VALLE(VALLF):
         )
         xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0)
 
+        # merge key padding and attention masks
+        bsz, src_len = x.shape[0], x_len + y_len
+        _xy_padding_mask = (
+            xy_padding_mask.view(bsz, 1, 1, src_len)
+            .expand(-1, self.num_heads, -1, -1)
+            .reshape(bsz * self.num_heads, 1, src_len)
+        )
+        xy_attn_mask = xy_attn_mask.logical_or(_xy_padding_mask)
+
+        new_attn_mask = torch.zeros_like(xy_attn_mask, dtype=x.dtype)
+        new_attn_mask.masked_fill_(xy_attn_mask, float("-inf"))
+        xy_attn_mask = new_attn_mask
+
         # Training
         # AR Decoder
         def pad_y_eos(y, eos_id):
@@ -557,7 +571,7 @@ class VALLE(VALLF):
         xy_dec, _ = self.ar_decoder(
             (xy_pos, None),
             mask=xy_attn_mask,
-            src_key_padding_mask=xy_padding_mask,
+            # src_key_padding_mask=xy_padding_mask,
             # is_causal=True,
         )
         logits = self.predict_layers[0](xy_dec[:, x_len:]).permute(0, 2, 1)
