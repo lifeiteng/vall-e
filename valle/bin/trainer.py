@@ -829,6 +829,7 @@ def run(rank, world_size, args):
             clipping_scale=2.0,
             parameters_names=parameters_names,
             show_dominant_parameters=False,
+            clipping_update_period=1000,
         )
     elif params.optimizer_name == "Eve":
         optimizer = Eve(
@@ -841,8 +842,8 @@ def run(rank, world_size, args):
             model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.95),
-            eps=1e-8,
             weight_decay=1e-2,
+            eps=1e-8,
         )
     elif params.optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
