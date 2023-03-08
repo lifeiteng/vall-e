@@ -383,10 +383,10 @@ class ScaledAdam(BatchedOptimizer):
             )
             first_state["num_clipped"] = 0
             quartiles = " ".join(["%.3e" % x for x in quartiles])
-            # logging.info(
-            #     f"Clipping_scale={clipping_scale}, grad-norm quartiles {quartiles}, "
-            #     f"threshold={threshold:.3e}, percent-clipped={percent_clipped:.1f}"
-            # )
+            logging.info(
+                f"Clipping_scale={clipping_scale}, grad-norm quartiles {quartiles}, "
+                f"threshold={threshold:.3e}, percent-clipped={percent_clipped:.1f}"
+            )
 
         if step < clipping_update_period:
             return 1.0  # We have not yet estimated a norm to clip to.
