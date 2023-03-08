@@ -576,9 +576,6 @@ class VALLE(VALLF):
         )
         logits = self.predict_layers[0](xy_dec[:, x_len:]).permute(0, 2, 1)
         # loss
-        # total_loss = F.cross_entropy(logits, targets, reduction="none")
-        # loss_mask = 1.0 - y_mask.type(torch.float32)
-        # total_loss = torch.sum(total_loss * loss_mask)
         total_loss = F.cross_entropy(logits, targets, reduction=reduction)
 
         metrics = {}
@@ -597,24 +594,47 @@ class VALLE(VALLF):
             y_emb = y_emb + self.nar_embeddings[j](codes[..., j])
 
         y_pos = self.audio_positions[train_stage](y_emb)
-        xy_pos = torch.concat([x, y_pos], dim=1)
 
+        prompts_len = x_len
+        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
+
+        # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
+        # from the same utterance.
+        prefix_len = 225
+        if True:  # We implement this differently.
+            # 24000/320 * 3s = 225 frames
+            if y_len < 900:
+                int_low = (0.25 * y_lens.min()).type(torch.int64).item()
+                prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
+
+            for j in range(train_stage, 8):
+                y_emb[:, :prefix_len] += self.nar_embeddings[j](
+                    codes[:, :prefix_len, j]
+                )
+
+            targets = targets[:, prefix_len:]
+            prompts_len += prefix_len
+
+        xy_pos = torch.concat([x, y_pos], dim=1)
         xy_dec, _ = self.nar_decoder(
             (xy_pos, self.stage_embeddings[train_stage].weight),
             src_key_padding_mask=xy_padding_mask,
             # is_causal=False,
         )
-        logits = self.predict_layers[train_stage](xy_dec[:, x_len:]).permute(
-            0, 2, 1
-        )
+        logits = self.predict_layers[train_stage](
+            xy_dec[:, prompts_len:]
+        ).permute(0, 2, 1)
 
         # loss
-        targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
-        total_loss += F.cross_entropy(
-            logits,
-            targets,
-            ignore_index=NUM_AUDIO_TOKENS,
-            reduction=reduction,
+        total_length = (y_lens).sum().type(torch.float32)
+        total_loss += (
+            F.cross_entropy(
+                logits,
+                targets,
+                ignore_index=NUM_AUDIO_TOKENS,
+                reduction=reduction,
+            )
+            * (total_length / (total_length - prefix_len * bsz))
         )
         metrics["NarTop10Accuracy"] = (
             self.nar_accuracy_metric(
@@ -625,7 +645,7 @@ class VALLE(VALLF):
                 ),
                 targets,
             ).item()
-            * y_lens.sum().type(torch.float32)
+            * total_length
         )
 
         return ((x, codes), total_loss / 2.0, metrics)
@@ -668,7 +688,7 @@ class VALLE(VALLF):
 
         text_len = x_lens.max()
         prompts = y
-        prompts_len = y.shape[1]
+        prefix_len = y.shape[1]
 
         # AR Decoder
         # TODO: Managing decoder steps avoid repetitive computation
@@ -727,14 +747,12 @@ class VALLE(VALLF):
 
             y = torch.concat([y, samples], dim=1)
 
-        codes = [y[:, prompts_len:]]
+        codes = [y[:, prefix_len:]]
         # Non-AR Decoders
         y_emb = self.nar_embeddings[0](y)
 
-        # for k in range(1, 7):
-        #     y_emb[:, x_lens.max() : prompts_len] += self.nar_embeddings[k](
-        #         prompts[..., k]
-        #     )
+        for j in range(1, 8):
+            y_emb[:, :prefix_len] += self.nar_embeddings[j](prompts[..., j])
 
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
@@ -748,14 +766,13 @@ class VALLE(VALLF):
             xy_dec, _ = self.nar_decoder(
                 (xy_pos, self.stage_embeddings[i + 1].weight)
             )
-            logits = predict_layer(xy_dec[:, text_len + prompts_len :])
+            logits = predict_layer(xy_dec[:, text_len + prefix_len :])
 
             samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
-            # Formula (4) (5)
+
             if i < 6:
-                y_emb[:, :prompts_len] += embedding_layer(prompts[..., i + 1])
-                y_emb[:, prompts_len:] += embedding_layer(samples)
+                y_emb[:, prefix_len:] += embedding_layer(samples)
 
         assert len(codes) == 8
         return torch.stack(codes, dim=-1)
