@@ -19,7 +19,7 @@ bash run.sh --stage -1 --stop-stage 3 \
 
 
 ## Training
-
+* How to Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
 ```
 python3 bin/trainer.py --max-duration 72 --filter-max-duration 14 \
       --num-buckets 6 --dtype "float32" --save-every-n 10000 \

@@ -69,7 +69,7 @@ Speech duration statistics:
 
 
 ## Training
-
+* How to Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
 ```
 # 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
 bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \

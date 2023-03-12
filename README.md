@@ -65,6 +65,7 @@ pip install git+https://github.com/lhotse-speech/lhotse
 # pip install k2
 git clone https://github.com/k2-fsa/k2.git
 cd k2
+export PATH=/usr/local/cuda/bin:${PATH}
 export K2_MAKE_ARGS="-j12"
 export K2_CMAKE_ARGS="-DK2_WITH_CUDA=OFF"
 python setup.py install
@@ -94,6 +95,10 @@ pip install -e .
 * **SummaryWriter segmentation fault (core dumped)**
    * LINE `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
    * FIX  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
+   ```
+   file=`python  -c 'import site; print(f"{site.getsitepackages()[0]}/tensorboard/summary/writer/event_file_writer.py")'`
+   sed -i 's/import tf/import tensorflow_stub as tf/g' $file
+   ```
 
 ## Contributing
 
