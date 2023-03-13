@@ -32,6 +32,7 @@ model_name="valle"
 decoder_dim=1024
 nhead=16
 num_decoder_layers=12
+prefix_mode=0
 
 accumulate_grad_steps=1
 base_lr=0.05
@@ -141,7 +142,7 @@ if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
     --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
     --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --dtype ${dtype} \
     --model-name "${model_name}" --norm-first true --add-prenet false \
-    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
+    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} --prefix-mode ${prefix_mode} \
     --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
     --num-epochs ${num_epochs} --start-epoch 1 --start-batch 0 \
     --exp-dir exp/${model_name}${exp_suffix}

@@ -50,6 +50,7 @@ class TestModel(unittest.TestCase):
         params.norm_first = True
         params.add_prenet = False
         params.model_name = "VALL-F"
+        params.prefix_mode = 0
         model = get_model(params)
         num_param = sum([p.numel() for p in model.parameters()])
 
@@ -77,6 +78,7 @@ class TestModel(unittest.TestCase):
         x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
         x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
         x_lens[-1] = 8
+        enroll_x_lens = torch.from_numpy(np.random.randint(1, 3, size=[4]))
 
         y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
@@ -85,23 +87,25 @@ class TestModel(unittest.TestCase):
         params.norm_first = False
         params.add_prenet = True
         params.model_name = "VALL-E"
-        model = get_model(params)
-        num_param = sum([p.numel() for p in model.parameters()])
 
         for device in self.devices:
-            # VALL-E
+            for mode in [0, 1, 2]:
+                params.prefix_mode = mode
+                # VALL-E
+                model = get_model(params)
+                model.to(device)
+                x = x.to(device)
+                x_lens = x_lens.to(device)
+                y = y.to(device)
+                y_lens = y_lens.to(device)
 
-            model.to(device)
-            x = x.to(device)
-            x_lens = x_lens.to(device)
-            y = y.to(device)
-            y_lens = y_lens.to(device)
-
-            # Training
-            codes, loss, metrics = model(x, x_lens, y, y_lens)
-            # Inference
-            model.eval()
-            codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
+                # Training
+                codes, loss, metrics = model(x, x_lens, y, y_lens)
+                # Inference
+                model.eval()
+                codes = model.inference(
+                    x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
+                )
 
     def test_topmetric(self):
         metric_top10 = MulticlassAccuracy(1024, top_k=10, average="micro")
