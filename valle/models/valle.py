@@ -592,8 +592,8 @@ class VALLE(VALLF):
         targets = codes[..., train_stage] + NUM_AUDIO_TOKENS * y_mask_int
         # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
         # from the same utterance.
-        prefix_len = 225
         if True:  # We implement this differently.
+            prefix_len = 225
             # 24000/320 * 3s = 225 frames
             if y_len < 900:
                 int_low = (0.25 * y_lens.min()).type(torch.int64).item()
@@ -610,6 +610,7 @@ class VALLE(VALLF):
             targets = targets[:, prefix_len:]
             prompts_len += prefix_len
         else:
+            prefix_len = 0
             y_emb = self.nar_embeddings[0](y)
             for j in range(1, train_stage):
                 # Formula (4) (5)
