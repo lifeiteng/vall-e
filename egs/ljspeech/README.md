@@ -19,7 +19,10 @@ bash run.sh --stage -1 --stop-stage 3 \
 
 
 ## Training
-* How to Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
+* Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
+* Fix `h5py Unable to open object (object ...`
+  * Make sure then version of h5py in `bin/tokenizer.py` and `bin/trainer.py` are same: `pip install h5py==3.8.0`
+
 ```
 python3 bin/trainer.py --max-duration 72 --filter-max-duration 14 \
       --num-buckets 6 --dtype "float32" --save-every-n 10000 \

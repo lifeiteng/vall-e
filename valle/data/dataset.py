@@ -26,6 +26,7 @@ from lhotse.cut import CutSet
 from lhotse.dataset.collation import collate_audio
 from lhotse.dataset.input_strategies import BatchIO, PrecomputedFeatures
 from lhotse.utils import ifnone
+
 from valle.data.collation import TextTokenCollater
 
 
@@ -76,11 +77,15 @@ class SpeechSynthesisDataset(torch.utils.data.Dataset):
         for transform in self.cut_transforms:
             cuts = transform(cuts)
 
-        audio, audio_lens = collate_audio(cuts)
+        if False:  # not used
+            audio, audio_lens = collate_audio(cuts)
+        else:  # for sharing tokenized features in different machines
+            audio, audio_lens = None, None
+
         audio_features, audio_features_lens = self.feature_input_strategy(cuts)
 
         for transform in self.feature_transforms:
-            features = transform(features)
+            audio_features = transform(audio_features)
 
         text_tokens, text_tokens_lens = self.text_token_collater(
             [cut.supervisions[0].custom["tokens"]["text"] for cut in cuts]

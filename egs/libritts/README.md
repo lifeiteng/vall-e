@@ -69,14 +69,16 @@ Speech duration statistics:
 
 
 ## Training
-* How to Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
+* Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
+* Fix `h5py Unable to open object (object ...`
+  * Make sure then version of h5py in `bin/tokenizer.py` and `bin/trainer.py` are same: `pip install h5py==3.8.0`
+
 ```
 # 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
 bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
     --num-decoder-layers 12
 ```
 ![train](./demos/train.png)
-
 
 ## Inference
 
