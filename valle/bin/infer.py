@@ -153,6 +153,49 @@ def main():
         audio_prompts = torch.concat(audio_prompts, dim=-1).transpose(2, 1)
         audio_prompts = audio_prompts.to(device)
 
+    if os.path.isfile(args.text):  # for demos
+        # https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/prepare.py
+        with open(args.text) as f:
+            for line in f:
+                fields = line.strip().split("\t")
+                assert len(fields) == 4
+                prompt_text, prompt_audio, text, audio_path = fields
+                logging.info(f"synthesize text: {text}")
+                text_tokens, text_tokens_lens = text_collater(
+                    [
+                        tokenize_text(
+                            text_tokenizer, text=f"{prompt_text} {text}".strip()
+                        )
+                    ]
+                )
+                _, enroll_x_lens = text_collater(
+                    [
+                        tokenize_text(
+                            text_tokenizer, text=f"{prompt_text}".strip()
+                        )
+                    ]
+                )
+
+                audio_prompts = tokenize_audio(audio_tokenizer, prompt_audio)
+                audio_prompts = audio_prompts[0][0].transpose(2, 1).to(device)
+
+                # synthesis
+                encoded_frames = model.inference(
+                    text_tokens.to(device),
+                    text_tokens_lens.to(device),
+                    audio_prompts,
+                    enroll_x_lens=enroll_x_lens,
+                    top_k=args.top_k,
+                    temperature=args.temperature,
+                )
+
+                samples = audio_tokenizer.decode(
+                    [(encoded_frames.transpose(2, 1), None)]
+                )
+                # store
+                torchaudio.save(audio_path, samples[0].cpu(), 24000)
+        return
+
     for n, text in enumerate(args.text.split("|")):
         logging.info(f"synthesize text: {text}")
         text_tokens, text_tokens_lens = text_collater(
