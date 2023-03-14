@@ -162,9 +162,12 @@ def main():
                 )
             ]
         )
-        _, enroll_x_lens = text_collater(
-            [tokenize_text(text_tokenizer, text=f"{text_prompts}".strip())]
-        )
+        enroll_x_lens = None
+        if text_prompts:
+            _, enroll_x_lens = text_collater(
+                [tokenize_text(text_tokenizer, text=f"{text_prompts}".strip())]
+            )
+
         # synthesis
         encoded_frames = model.inference(
             text_tokens.to(device),

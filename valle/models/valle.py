@@ -606,20 +606,17 @@ class VALLE(VALLF):
                 y_emb = y_emb + self.nar_embeddings[j](codes[..., j])
         elif self.prefix_mode == 1:
             # prefix at begin
-            prefix_len = 225
-            # 24000/320 * 3s = 225 frames
-            if y_len < 900:
-                int_low = (0.15 * y_lens.min()).type(torch.int64).item()
-                prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
-                prefix_len = min(prefix_len, 225)
+            int_low = (0.15 * y_lens.min()).type(torch.int64).item()
+            prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
+            prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
 
-            y_prev = self.nar_embeddings[0](y[:, :prefix_len])
+            y_prompts = self.nar_embeddings[0](y[:, :prefix_len])
             y_emb = self.nar_embeddings[0](y[:, prefix_len:])
             for j in range(1, 8):
-                y_prev += self.nar_embeddings[j](codes[:, :prefix_len, j])
+                y_prompts += self.nar_embeddings[j](codes[:, :prefix_len, j])
                 if j < train_stage:
                     y_emb += self.nar_embeddings[j](codes[:, prefix_len:, j])
-            y_emb = torch.concat([y_prev.detach(), y_emb], axis=1)
+            y_emb = torch.concat([y_prompts, y_emb], axis=1)
 
             targets = targets[:, prefix_len:]
             prompts_len += prefix_len
@@ -631,7 +628,7 @@ class VALLE(VALLF):
             ).item()
             prefix_end = torch.randint(
                 prefix_start + int(0.25 * min_y_len),
-                prefix_start + int(0.30 * min_y_len),
+                prefix_start + int(0.30 * min_y_len) + 1,
                 size=(),
             ).item()
             prefix_end = min(prefix_end, min_y_len)
@@ -645,7 +642,7 @@ class VALLE(VALLF):
                 )
                 if j < train_stage:
                     y_emb += self.nar_embeddings[j](codes[..., j])
-            y_emb = torch.concat([y_prompts.detach(), y_emb], axis=1)
+            y_emb = torch.concat([y_prompts, y_emb], axis=1)
 
             prompts_len += prefix_end - prefix_start
             xy_padding_mask = torch.concat(
