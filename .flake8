@@ -6,6 +6,7 @@ per-file-ignores =
     # line too long
     valle/bin/trainer.py: E501, E402,
     valle/bin/infer.py: E501, E402,
+    valle/bin/tokenizer.py: E501, E402,
     valle/models/*.py: E501, E203,
     valle/models/__init__.py: F401
     valle/utils/__init__.py: F401,

@@ -40,6 +40,9 @@ from valle.data import (
 from valle.data.fbank import get_fbank_extractor
 from valle.utils import SymbolTable
 
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+
 # Torch's multithreaded behavior needs to be disabled or
 # it wastes a lot of CPU and slow things down.
 # Do this outside of main() in case it needs to take effect

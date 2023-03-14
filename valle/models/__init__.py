@@ -46,6 +46,14 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Whether add PreNet after Inputs.",
     )
 
+    parser.add_argument(
+        "--prefix-mode",
+        type=int,
+        default=0,
+        help="The mode for how to prefix VALL-E NAR Decoder, "
+        "0: no prefix, 1: 0 to random, 2: random to random.",
+    )
+
 
 def get_model(params: AttributeDict) -> nn.Module:
     if params.model_name.lower() in ["vall-f", "vallf"]:
@@ -55,6 +63,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             params.num_decoder_layers,
             norm_first=params.norm_first,
             add_prenet=params.add_prenet,
+            prefix_mode=params.prefix_mode,
         )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
@@ -63,6 +72,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             params.num_decoder_layers,
             norm_first=params.norm_first,
             add_prenet=params.add_prenet,
+            prefix_mode=params.prefix_mode,
         )
     else:
         assert params.model_name in ["Transformer"]
