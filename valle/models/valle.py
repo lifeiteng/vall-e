@@ -325,7 +325,7 @@ class VALLF(nn.Module):
             self.nar_accuracy_metric(
                 F.pad(
                     logits.detach(),
-                    (0, 0, 1, 0, 0, 0),
+                    (0, 0, 0, 1, 0, 0),
                     value=logits.min().cpu().item(),
                 ),
                 targets,
@@ -684,7 +684,7 @@ class VALLE(VALLF):
             self.nar_accuracy_metric(
                 F.pad(
                     logits.detach(),
-                    (0, 0, 1, 0, 0, 0),
+                    (0, 0, 0, 1, 0, 0),
                     value=logits.min().cpu().item(),
                 ),
                 targets,
