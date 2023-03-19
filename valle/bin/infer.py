@@ -33,6 +33,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import torch
 import torchaudio
+from icefall.utils import str2bool
 
 from valle.data import (
     AudioTokenizer,
@@ -104,6 +105,13 @@ def get_args():
         type=float,
         default=1.0,
         help="The temperature of AR Decoder top_k sampling.",
+    )
+
+    parser.add_argument(
+        "--continual",
+        type=str2bool,
+        default=False,
+        help="Do continual task.",
     )
 
     return parser.parse_args()
@@ -205,21 +213,33 @@ def main():
                 )
             ]
         )
-        enroll_x_lens = None
-        if text_prompts:
-            _, enroll_x_lens = text_collater(
-                [tokenize_text(text_tokenizer, text=f"{text_prompts}".strip())]
-            )
 
         # synthesis
-        encoded_frames = model.inference(
-            text_tokens.to(device),
-            text_tokens_lens.to(device),
-            audio_prompts,
-            enroll_x_lens=enroll_x_lens,
-            top_k=args.top_k,
-            temperature=args.temperature,
-        )
+        if args.continual:
+            assert text == ""
+            encoded_frames = model.continual(
+                text_tokens.to(device),
+                text_tokens_lens.to(device),
+                audio_prompts,
+            )
+        else:
+            enroll_x_lens = None
+            if text_prompts:
+                _, enroll_x_lens = text_collater(
+                    [
+                        tokenize_text(
+                            text_tokenizer, text=f"{text_prompts}".strip()
+                        )
+                    ]
+                )
+            encoded_frames = model.inference(
+                text_tokens.to(device),
+                text_tokens_lens.to(device),
+                audio_prompts,
+                enroll_x_lens=enroll_x_lens,
+                top_k=args.top_k,
+                temperature=args.temperature,
+            )
 
         if audio_prompts != []:
             samples = audio_tokenizer.decode(

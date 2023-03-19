@@ -717,7 +717,7 @@ class VALLE(VALLF):
           temperature: (`optional`) float
             The value used to module the next token probabilities. Must be strictly positive. Default to 1.0.
         Returns:
-          Return the predicted audio code matrix and cross-entropy loss.
+          Return the predicted audio code matrix.
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
@@ -812,6 +812,97 @@ class VALLE(VALLF):
             x = self.text_position(x)
             text_len = text_len - (enrolled_len - 2)
             assert x.shape[0] == 1
+
+        if self.prefix_mode == 0:
+            for i, (predict_layer, embedding_layer) in enumerate(
+                zip(
+                    self.predict_layers[1:],
+                    self.nar_embeddings[1:],
+                )
+            ):
+                y_pos = self.audio_positions[i + 1](y_emb)
+                xy_pos = torch.concat([x, y_pos], dim=1)
+
+                xy_dec, _ = self.nar_decoder(
+                    (xy_pos, self.stage_embeddings[i + 1].weight)
+                )
+                logits = predict_layer(xy_dec[:, text_len + prefix_len :])
+
+                samples = torch.argmax(logits, dim=-1)
+                codes.append(samples)
+
+                if i < 6:
+                    y_emb[:, :prefix_len] += embedding_layer(
+                        prompts[..., i + 1]
+                    )
+                    y_emb[:, prefix_len:] += embedding_layer(samples)
+        else:
+            for j in range(1, 8):
+                y_emb[:, :prefix_len] += self.nar_embeddings[j](prompts[..., j])
+
+            for i, (predict_layer, embedding_layer) in enumerate(
+                zip(
+                    self.predict_layers[1:],
+                    self.nar_embeddings[1:],
+                )
+            ):
+                y_pos = self.audio_positions[i + 1](y_emb)
+                xy_pos = torch.concat([x, y_pos], dim=1)
+
+                xy_dec, _ = self.nar_decoder(
+                    (xy_pos, self.stage_embeddings[i + 1].weight)
+                )
+                logits = predict_layer(xy_dec[:, text_len + prefix_len :])
+
+                samples = torch.argmax(logits, dim=-1)
+                codes.append(samples)
+
+                if i < 6:
+                    y_emb[:, prefix_len:] += embedding_layer(samples)
+
+        assert len(codes) == 8
+        return torch.stack(codes, dim=-1)
+
+    def continual(
+        self,
+        x: torch.Tensor,
+        x_lens: torch.Tensor,
+        y: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Args:
+          x:
+            A 2-D tensor of shape (1, S).
+          x_lens:
+            A 1-D tensor of shape (1,). It contains the number of tokens in `x`
+            before padding.
+          y:
+            A 3-D tensor of shape (1, T, 8).
+        Returns:
+          Return the predicted audio code matrix.
+        """
+        assert x.ndim == 2, x.shape
+        assert x_lens.ndim == 1, x_lens.shape
+        assert y.ndim == 3, y.shape
+        assert y.shape[0] == 1, y.shape
+
+        assert torch.all(x_lens > 0)
+
+        # NOTE: x has been padded in TextTokenCollater
+        x = self.text_embedding(x)
+        x = self.text_prenet(x)
+        x = self.text_position(x)
+
+        text_len = x_lens.max()
+
+        prefix_len = min(int(y.shape[1] * 0.5), 3 * 75)
+
+        # AR Decoder
+        prompts = y[:, :prefix_len]
+
+        codes = [y[:, prefix_len:, 0]]
+        # Non-AR Decoders
+        y_emb = self.nar_embeddings[0](y[..., 0])
 
         if self.prefix_mode == 0:
             for i, (predict_layer, embedding_layer) in enumerate(
