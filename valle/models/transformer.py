@@ -148,6 +148,7 @@ class Transformer(nn.Module):
         y: torch.Tensor,
         y_lens: torch.Tensor,
         reduction: str = "sum",
+        train_stage: int = 0,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -161,9 +162,13 @@ class Transformer(nn.Module):
           y_lens:
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
+          train_stage:
+            Not used in this model.
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
+        del train_stage
+
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
         assert y.ndim == 3, y.shape

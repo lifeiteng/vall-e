@@ -237,6 +237,14 @@ def get_parser():
         help="Keep only utterances with duration < this.",
     )
 
+    parser.add_argument(
+        "--train-stage",
+        type=int,
+        default=0,
+        help="""0: train all modules, For VALL-E, support 1: AR Decoder 2: NAR Decoder(s)
+        """,
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -342,19 +350,45 @@ def load_checkpoint_if_available(
         scheduler=scheduler,
     )
 
-    keys = [
-        "best_train_epoch",
-        "best_valid_epoch",
-        "batch_idx_train",
-        "best_train_loss",
-        "best_valid_loss",
-    ]
-    for k in keys:
-        params[k] = saved_params[k]
+    saved_stage = saved_params.get("train_stage", 0)
+    if params.train_stage != saved_stage:
+        # switch training stage
+        params.start_epoch = 1
+        params.start_batch = 0
+        assert params.num_epochs >= saved_params["num_epochs"]
 
-    if params.start_batch > 0:
-        if "cur_epoch" in saved_params:
-            params["start_epoch"] = saved_params["cur_epoch"]
+        for key in ["optimizer", "scheduler", "grad_scaler", "sampler"]:
+            if key in saved_params:
+                saved_params.pop(key)
+
+        best_train_filename = params.exp_dir / "best-train-loss.pt"
+        if best_train_filename.is_file():
+            copyfile(
+                src=best_train_filename,
+                dst=params.exp_dir / f"best-train-loss-stage{saved_stage}.pt",
+            )
+
+        best_valid_filename = params.exp_dir / "best-valid-loss.pt"
+        if best_valid_filename.is_file():
+            copyfile(
+                src=best_valid_filename,
+                dst=params.exp_dir / f"best-valid-loss-stage{saved_stage}.pt",
+            )
+    else:
+
+        keys = [
+            "best_train_epoch",
+            "best_valid_epoch",
+            "batch_idx_train",
+            "best_train_loss",
+            "best_valid_loss",
+        ]
+        for k in keys:
+            params[k] = saved_params[k]
+
+        if params.start_batch > 0:
+            if "cur_epoch" in saved_params:
+                params["start_epoch"] = saved_params["cur_epoch"]
 
     return saved_params
 
@@ -453,6 +487,7 @@ def compute_loss(
             x_lens=text_tokens_lens,
             y=audio_features,
             y_lens=audio_features_lens,
+            train_stage=params.train_stage,
         )
 
     assert loss.requires_grad == is_training
@@ -784,7 +819,12 @@ def run(rank, world_size, args):
     logging.info("Training started")
 
     if args.tensorboard and rank == 0:
-        tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")
+        if params.train_stage:
+            tb_writer = SummaryWriter(
+                log_dir=f"{params.exp_dir}/tensorboard_stage{params.train_stage}"
+            )
+        else:
+            tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")
     else:
         tb_writer = None
 
@@ -819,11 +859,27 @@ def run(rank, world_size, args):
 
     if params.optimizer_name == "ScaledAdam":
         parameters_names = []
-        parameters_names.append(
-            [name_param_pair[0] for name_param_pair in model.named_parameters()]
-        )
+        if params.train_stage:  # != 0
+            parameters_names.append(
+                [
+                    name_param_pair[0]
+                    for name_param_pair in model.stage_named_parameters(
+                        params.train_stage
+                    )
+                ]
+            )
+        else:
+            parameters_names.append(
+                [
+                    name_param_pair[0]
+                    for name_param_pair in model.named_parameters()
+                ]
+            )
+
         optimizer = ScaledAdam(
-            model.parameters(),
+            model.stage_parameters(params.train_stage)
+            if params.train_stage
+            else model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.95),
             clipping_scale=2.0,
@@ -833,13 +889,17 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Eve":
         optimizer = Eve(
-            model.parameters(),
+            model.stage_parameters(params.train_stage)
+            if params.train_stage
+            else model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.98),
         )
     elif params.optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
-            model.parameters(),
+            model.stage_parameters(params.train_stage)
+            if params.train_stage
+            else model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.95),
             weight_decay=1e-2,
@@ -847,7 +907,9 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
-            model.parameters(),
+            model.stage_parameters(params.train_stage)
+            if params.train_stage
+            else model.parameters(),
             lr=params.base_lr,
             betas=(0.9, 0.95),
             eps=1e-8,

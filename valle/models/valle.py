@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import random
-from typing import Tuple, Union
+from typing import Iterator, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -254,6 +254,34 @@ class VALLF(nn.Module):
     #     elif isinstance(module, nn.Embedding):
     #         module.weight.data.normal_(mean=0.0, std=1.0)
 
+    def stage_parameters(self, stage: int = 1) -> Iterator[nn.Parameter]:
+        assert stage > 0
+        if stage == 1:
+            for name, param in self.named_parameters():
+                if name.startswith("ar_"):
+                    print(f" AR parameter: {name}")
+                    yield param
+
+        if stage == 2:
+            for name, param in self.named_parameters():
+                if name.startswith("nar_"):
+                    print(f"NAR parameter: {name}")
+                    yield param
+
+    def stage_named_parameters(
+        self, stage: int = 1
+    ) -> Iterator[Tuple[str, nn.Parameter]]:
+        assert stage > 0
+        if stage == 1:
+            for pair in self.named_parameters():
+                if pair[0].startswith("ar_"):
+                    yield pair
+
+        if stage == 2:
+            for pair in self.named_parameters():
+                if pair[0].startswith("nar_"):
+                    yield pair
+
     def forward(
         self,
         x: torch.Tensor,
@@ -261,6 +289,7 @@ class VALLF(nn.Module):
         y: torch.Tensor,
         y_lens: torch.Tensor,
         reduction: str = "sum",
+        train_stage: int = 0,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -274,6 +303,8 @@ class VALLF(nn.Module):
           y_lens:
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
+          train_stage:
+            Not used in this model.
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
@@ -541,6 +572,7 @@ class VALLE(VALLF):
         y: torch.Tensor,
         y_lens: torch.Tensor,
         reduction: str = "sum",
+        train_stage: int = 0,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -554,6 +586,8 @@ class VALLE(VALLF):
           y_lens:
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
+          train_stage:
+            0: all part, 1: AR part, 2: NAR part
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
@@ -566,195 +600,203 @@ class VALLE(VALLF):
 
         # NOTE: x has been padded in TextTokenCollater
         x_mask = make_pad_mask(x_lens).to(x.device)
-
-        text = x
-        x = self.ar_text_embedding(text)
-        x = self.ar_text_prenet(x)
-        x = self.ar_text_position(x)
-
         y_mask = make_pad_mask(y_lens).to(y.device)
+        xy_padding_mask = torch.concat([x_mask, y_mask], dim=1)
         y_mask_int = y_mask.type(torch.int64)
 
+        text = x
         codes = y.type(torch.int64) * (1 - y_mask_int.unsqueeze(dim=-1))
 
-        x_len = x_lens.max()
-        y_len = y_lens.max()
-
-        xy_padding_mask = torch.concat([x_mask, y_mask], dim=1)
-
-        x_attn_mask = F.pad(
-            torch.zeros((x_len, x_len), dtype=torch.bool, device=x.device),
-            (0, y_len),
-            value=True,
-        )
-        y_attn_mask = F.pad(
-            torch.triu(
-                torch.ones(y_len, y_len, dtype=torch.bool, device=x.device),
-                diagonal=1,
-            ),
-            (x_len, 0),
-            value=False,
-        )
-        xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0)
-
-        # merge key padding and attention masks
-        bsz, src_len = x.shape[0], x_len + y_len
-        _xy_padding_mask = (
-            xy_padding_mask.view(bsz, 1, 1, src_len)
-            .expand(-1, self.num_heads, -1, -1)
-            .reshape(bsz * self.num_heads, 1, src_len)
-        )
-        xy_attn_mask = xy_attn_mask.logical_or(_xy_padding_mask)
-
-        new_attn_mask = torch.zeros_like(xy_attn_mask, dtype=x.dtype)
-        new_attn_mask.masked_fill_(xy_attn_mask, float("-inf"))
-        xy_attn_mask = new_attn_mask
-
-        # Training
-        # AR Decoder
         def pad_y_eos(y, eos_id):
             y = F.pad(y, (0, 1)) + eos_id * F.pad(y_mask_int, (0, 1), value=1)
             # inputs, targets
             return y[:, :-1], y[:, 1:]
 
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
-        y_emb = self.ar_audio_embedding(y)
-        y_emb = self.ar_audio_prenet(y_emb)
-        y_pos = self.ar_audio_position(y_emb)
 
-        xy_pos = torch.concat([x, y_pos], dim=1)
-
-        xy_dec, _ = self.ar_decoder(
-            (xy_pos, None),
-            mask=xy_attn_mask,
-            # src_key_padding_mask=xy_padding_mask,
-            # is_causal=True,
-        )
-        logits = self.ar_predict_layer(xy_dec[:, x_len:]).permute(0, 2, 1)
-        # loss
-        total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+        x_len = x_lens.max()
 
         metrics = {}
-        metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
-            logits.detach(), targets
-        ).item() * y_lens.sum().type(torch.float32)
+        total_loss = 0.0
+
+        # AR Decoder
+        if train_stage in [0, 1]:
+            x = self.ar_text_embedding(text)
+            x = self.ar_text_prenet(x)
+            x = self.ar_text_position(x)
+
+            y_len = y_lens.max()
+
+            x_attn_mask = F.pad(
+                torch.zeros((x_len, x_len), dtype=torch.bool, device=x.device),
+                (0, y_len),
+                value=True,
+            )
+            y_attn_mask = F.pad(
+                torch.triu(
+                    torch.ones(y_len, y_len, dtype=torch.bool, device=x.device),
+                    diagonal=1,
+                ),
+                (x_len, 0),
+                value=False,
+            )
+            xy_attn_mask = torch.concat([x_attn_mask, y_attn_mask], dim=0)
+
+            # merge key padding and attention masks
+            bsz, src_len = x.shape[0], x_len + y_len
+            _xy_padding_mask = (
+                xy_padding_mask.view(bsz, 1, 1, src_len)
+                .expand(-1, self.num_heads, -1, -1)
+                .reshape(bsz * self.num_heads, 1, src_len)
+            )
+            xy_attn_mask = xy_attn_mask.logical_or(_xy_padding_mask)
+
+            new_attn_mask = torch.zeros_like(xy_attn_mask, dtype=x.dtype)
+            new_attn_mask.masked_fill_(xy_attn_mask, float("-inf"))
+            xy_attn_mask = new_attn_mask
+
+            y_emb = self.ar_audio_embedding(y)
+            y_emb = self.ar_audio_prenet(y_emb)
+            y_pos = self.ar_audio_position(y_emb)
+
+            xy_pos = torch.concat([x, y_pos], dim=1)
+
+            xy_dec, _ = self.ar_decoder(
+                (xy_pos, None),
+                mask=xy_attn_mask,
+                # src_key_padding_mask=xy_padding_mask,
+                # is_causal=True,
+            )
+            logits = self.ar_predict_layer(xy_dec[:, x_len:]).permute(0, 2, 1)
+            # loss
+            total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+
+            metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
+                logits.detach(), targets
+            ).item() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
-        nar_stage = self.rng.choices(
-            (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
-        )[0]
+        if train_stage in [0, 2]:
+            nar_stage = self.rng.choices(
+                (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
+            )[0]
 
-        x = self.nar_text_embedding(text)
-        x = self.nar_text_prenet(x)
-        x = self.nar_text_position(x)
+            x = self.nar_text_embedding(text)
+            x = self.nar_text_prenet(x)
+            x = self.nar_text_position(x)
 
-        prompts_len = x_len
-        targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
-        # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
-        # from the same utterance.
-        # We implement this differently.
-        if self.prefix_mode == 0:
-            # no prefix
-            prefix_len = 0
-            y_emb = self.nar_audio_embeddings[0](y)
-            for j in range(1, nar_stage):
-                # Formula (4) (5)
-                y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
-        elif self.prefix_mode == 1:
-            # prefix at begin
-            int_low = (0.15 * y_lens.min()).type(torch.int64).item()
-            prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
-            prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
+            prompts_len = x_len
+            targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
+            # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
+            # from the same utterance.
+            # We implement this differently.
+            if self.prefix_mode == 0:
+                # no prefix
+                prefix_len = 0
+                y_emb = self.nar_audio_embeddings[0](y)
+                for j in range(1, nar_stage):
+                    # Formula (4) (5)
+                    y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
+            elif self.prefix_mode == 1:
+                # prefix at begin
+                int_low = (0.15 * y_lens.min()).type(torch.int64).item()
+                prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
+                prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
 
-            y_prompts = self.nar_audio_embeddings[0](y[:, :prefix_len])
-            y_emb = self.nar_audio_embeddings[0](y[:, prefix_len:])
-            for j in range(1, 8):
-                y_prompts += self.nar_audio_embeddings[j](
-                    codes[:, :prefix_len, j]
-                )
-                if j < nar_stage:
-                    y_emb += self.nar_audio_embeddings[j](
-                        codes[:, prefix_len:, j]
+                y_prompts = self.nar_audio_embeddings[0](y[:, :prefix_len])
+                y_emb = self.nar_audio_embeddings[0](y[:, prefix_len:])
+                for j in range(1, 8):
+                    y_prompts += self.nar_audio_embeddings[j](
+                        codes[:, :prefix_len, j]
                     )
-            y_emb = torch.concat([y_prompts, y_emb], axis=1)
+                    if j < nar_stage:
+                        y_emb += self.nar_audio_embeddings[j](
+                            codes[:, prefix_len:, j]
+                        )
+                y_emb = torch.concat([y_prompts, y_emb], axis=1)
 
-            targets = targets[:, prefix_len:]
-            prompts_len += prefix_len
-        elif self.prefix_mode == 2:
-            # random prefix
-            min_y_len = y_lens.min().item()
-            prefix_start = torch.randint(
-                0, int(0.75 * min_y_len), size=()
-            ).item()
-            prefix_end = torch.randint(
-                prefix_start + int(0.25 * min_y_len),
-                prefix_start + int(0.30 * min_y_len) + 1,
-                size=(),
-            ).item()
-            prefix_end = min(prefix_end, min_y_len)
-            assert prefix_end > prefix_start
+                targets = targets[:, prefix_len:]
+                prompts_len += prefix_len
+            elif self.prefix_mode == 2:
+                # random prefix
+                min_y_len = y_lens.min().item()
+                prefix_start = torch.randint(
+                    0, int(0.75 * min_y_len), size=()
+                ).item()
+                prefix_end = torch.randint(
+                    prefix_start + int(0.25 * min_y_len),
+                    prefix_start + int(0.30 * min_y_len) + 1,
+                    size=(),
+                ).item()
+                prefix_end = min(prefix_end, min_y_len)
+                assert prefix_end > prefix_start
 
-            y_prompts = self.nar_audio_embeddings[0](
-                y[:, prefix_start:prefix_end]
-            )
-            y_emb = self.nar_audio_embeddings[0](y)
-            for j in range(1, 8):
-                y_prompts += self.nar_audio_embeddings[j](
-                    codes[:, prefix_start:prefix_end, j]
+                y_prompts = self.nar_audio_embeddings[0](
+                    y[:, prefix_start:prefix_end]
                 )
-                if j < nar_stage:
-                    y_emb += self.nar_audio_embeddings[j](codes[..., j])
-            y_emb = torch.concat([y_prompts, y_emb], axis=1)
+                y_emb = self.nar_audio_embeddings[0](y)
+                for j in range(1, 8):
+                    y_prompts += self.nar_audio_embeddings[j](
+                        codes[:, prefix_start:prefix_end, j]
+                    )
+                    if j < nar_stage:
+                        y_emb += self.nar_audio_embeddings[j](codes[..., j])
+                y_emb = torch.concat([y_prompts, y_emb], axis=1)
 
-            prompts_len += prefix_end - prefix_start
-            xy_padding_mask = torch.concat(
-                [
-                    x_mask,
-                    F.pad(y_mask, (prefix_end - prefix_start, 0), value=False),
-                ],
-                dim=1,
+                prompts_len += prefix_end - prefix_start
+                xy_padding_mask = torch.concat(
+                    [
+                        x_mask,
+                        F.pad(
+                            y_mask, (prefix_end - prefix_start, 0), value=False
+                        ),
+                    ],
+                    dim=1,
+                )
+
+                prefix_len = 0
+            else:
+                raise ValueError
+
+            y_pos = self.nar_audio_prenet(y_emb)
+            y_pos = self.nar_audio_position(y_pos)
+            xy_pos = torch.concat([x, y_pos], dim=1)
+            xy_dec, _ = self.nar_decoder(
+                (xy_pos, self.nar_stage_embeddings[nar_stage - 1].weight),
+                src_key_padding_mask=xy_padding_mask,
+                # is_causal=False,
+            )
+            logits = self.nar_predict_layers[nar_stage - 1](
+                xy_dec[:, prompts_len:]
+            ).permute(0, 2, 1)
+
+            # loss
+            total_length = (y_lens).sum().type(torch.float32)
+            total_loss += (
+                F.cross_entropy(
+                    logits,
+                    targets,
+                    ignore_index=NUM_AUDIO_TOKENS,
+                    reduction=reduction,
+                )
+                * (total_length / (total_length - prefix_len * x.shape[0]))
+            )
+            metrics["NarTop10Accuracy"] = (
+                self.nar_accuracy_metric(
+                    F.pad(
+                        logits.detach(),
+                        (0, 0, 0, 1, 0, 0),
+                        value=logits.min().cpu().item(),
+                    ),
+                    targets,
+                ).item()
+                * total_length
             )
 
-            prefix_len = 0
-        else:
-            raise ValueError
+        if train_stage == 0:
+            total_loss = total_loss / 2.0
 
-        y_pos = self.nar_audio_prenet(y_emb)
-        y_pos = self.nar_audio_position(y_pos)
-        xy_pos = torch.concat([x, y_pos], dim=1)
-        xy_dec, _ = self.nar_decoder(
-            (xy_pos, self.nar_stage_embeddings[nar_stage - 1].weight),
-            src_key_padding_mask=xy_padding_mask,
-            # is_causal=False,
-        )
-        logits = self.nar_predict_layers[nar_stage - 1](
-            xy_dec[:, prompts_len:]
-        ).permute(0, 2, 1)
-
-        # loss
-        total_length = (y_lens).sum().type(torch.float32)
-        total_loss += (
-            F.cross_entropy(
-                logits,
-                targets,
-                ignore_index=NUM_AUDIO_TOKENS,
-                reduction=reduction,
-            )
-            * (total_length / (total_length - prefix_len * bsz))
-        )
-        metrics["NarTop10Accuracy"] = (
-            self.nar_accuracy_metric(
-                F.pad(
-                    logits.detach(),
-                    (0, 0, 0, 1, 0, 0),
-                    value=logits.min().cpu().item(),
-                ),
-                targets,
-            ).item()
-            * total_length
-        )
-
-        return ((x, codes), total_loss / 2.0, metrics)
+        return ((x, codes), total_loss, metrics)
 
     def inference(
         self,
