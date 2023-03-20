@@ -857,6 +857,11 @@ def run(rank, world_size, args):
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
+    if params.train_stage:
+        model_parameters = model.stage_parameters(params.train_stage)
+    else:
+        model_parameters = model.parameters()
+
     if params.optimizer_name == "ScaledAdam":
         parameters_names = []
         if params.train_stage:  # != 0
@@ -877,9 +882,7 @@ def run(rank, world_size, args):
             )
 
         optimizer = ScaledAdam(
-            model.stage_parameters(params.train_stage)
-            if params.train_stage
-            else model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             clipping_scale=2.0,
@@ -889,17 +892,13 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Eve":
         optimizer = Eve(
-            model.stage_parameters(params.train_stage)
-            if params.train_stage
-            else model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.98),
         )
     elif params.optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
-            model.stage_parameters(params.train_stage)
-            if params.train_stage
-            else model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             weight_decay=1e-2,
@@ -907,9 +906,7 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
-            model.stage_parameters(params.train_stage)
-            if params.train_stage
-            else model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             eps=1e-8,
