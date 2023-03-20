@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from icefall.utils import make_pad_mask
 from torchmetrics.classification import MulticlassAccuracy
 
+from valle.data.input_strategies import PromptedFeatures
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
 from valle.modules.transformer import (
     AdaptiveLayerNorm,
@@ -287,8 +288,8 @@ class VALLF(nn.Module):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: torch.Tensor,
-        y_lens: torch.Tensor,
+        y: Union[torch.Tensor, PromptedFeatures],
+        y_lens: Union[torch.Tensor, PromptedFeatures],
         reduction: str = "sum",
         train_stage: int = 0,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
@@ -570,8 +571,8 @@ class VALLE(VALLF):
         self,
         x: torch.Tensor,
         x_lens: torch.Tensor,
-        y: torch.Tensor,
-        y_lens: torch.Tensor,
+        y: Union[torch.Tensor, PromptedFeatures],
+        y_lens: Union[torch.Tensor, PromptedFeatures],
         reduction: str = "sum",
         train_stage: int = 0,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
@@ -594,9 +595,17 @@ class VALLE(VALLF):
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
+
+        y_prompts_codes = None
+        if isinstance(y, PromptedFeatures):
+            y_prompts_codes, y = y.data
+            prompts_len, y_lens = y_lens.data
+            assert prompts_len.min() == prompts_len.max()
+            assert self.prefix_mode == 4
+            y_prompts_codes = y_prompts_codes.type(torch.int64)
+
         assert y.ndim == 3, y.shape
         assert y_lens.ndim == 1, y_lens.shape
-
         assert torch.all(x_lens > 0)
 
         # NOTE: x has been padded in TextTokenCollater
@@ -756,6 +765,31 @@ class VALLE(VALLF):
                 )
 
                 prefix_len = 0
+            elif self.prefix_mode == 4:
+                assert y_prompts_codes is not None
+                y_prompts = self.nar_audio_embeddings[0](
+                    y_prompts_codes[..., 0]
+                )
+                y_emb = self.nar_audio_embeddings[0](y)
+                for j in range(1, 8):
+                    y_prompts += self.nar_audio_embeddings[j](
+                        y_prompts_codes[..., j]
+                    )
+                    if j < nar_stage:
+                        y_emb += self.nar_audio_embeddings[j](codes[..., j])
+                y_emb = torch.concat([y_prompts, y_emb], axis=1)
+
+                prompts_len += y_prompts.shape[1]
+                xy_padding_mask = torch.concat(
+                    [
+                        x_mask,
+                        F.pad(y_mask, (y_prompts.shape[1], 0), value=False),
+                    ],
+                    dim=1,
+                )
+
+                prefix_len = 0
+
             else:
                 raise ValueError
 
@@ -902,7 +936,7 @@ class VALLE(VALLF):
         # Non-AR Decoders
         y_emb = self.nar_audio_embeddings[0](y)
 
-        if self.prefix_mode == 2:  # Exclude enrolled_phonemes
+        if self.prefix_mode in [2, 4]:  # Exclude enrolled_phonemes
             enrolled_len = enroll_x_lens.max().item()
             # SOS + Synthesis Text + EOS
             x = torch.concat(

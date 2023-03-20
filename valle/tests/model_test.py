@@ -20,6 +20,7 @@ import torch
 from icefall.utils import AttributeDict
 from torchmetrics.classification import MulticlassAccuracy
 
+from valle.data.input_strategies import PromptedFeatures
 from valle.models import NUM_MEL_BINS, get_model
 
 
@@ -101,6 +102,49 @@ class TestModel(unittest.TestCase):
 
                 # Training
                 codes, loss, metrics = model(x, x_lens, y, y_lens)
+                # Inference
+                model.eval()
+                codes = model.inference(
+                    x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
+                )
+
+    def test_valle_prefix4(self):
+        params = AttributeDict()
+        params.decoder_dim = 64
+        params.nhead = 16
+        params.num_decoder_layers = 4
+
+        x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
+        x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
+        x_lens[-1] = 8
+        enroll_x_lens = torch.from_numpy(np.random.randint(1, 3, size=[4]))
+
+        y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
+        y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
+        y_lens[-1] = 16
+
+        prompts = torch.from_numpy(np.random.randint(0, 1000, size=[4, 12, 8]))
+        prompts_lens = torch.from_numpy(np.random.randint(12, 13, size=[4]))
+
+        params.norm_first = False
+        params.add_prenet = True
+        params.model_name = "VALL-E"
+
+        for device in self.devices:
+            for mode in [4]:
+                params.prefix_mode = mode
+                # VALL-E
+                model = get_model(params)
+                model.to(device)
+                x = x.to(device)
+                x_lens = x_lens.to(device)
+                y = y.to(device)
+
+                _y = PromptedFeatures(prompts, y).to(device)
+                _y_lens = PromptedFeatures(prompts_lens, y_lens).to(device)
+
+                # Training
+                codes, loss, metrics = model(x, x_lens, _y, _y_lens)
                 # Inference
                 model.eval()
                 codes = model.inference(
