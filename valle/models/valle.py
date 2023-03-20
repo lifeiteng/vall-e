@@ -26,6 +26,7 @@ from valle.modules.transformer import (
     AdaptiveLayerNorm,
     LayerNorm,
     TransformerDecoderLayer,
+    TransformerEncoder,
     TransformerEncoderLayer,
 )
 
@@ -560,7 +561,7 @@ class VALLE(VALLF):
             num_layers,
             norm_first=norm_first,
             add_prenet=add_prenet,
-            decoder_cls=nn.TransformerEncoder,
+            decoder_cls=TransformerEncoder,
             decoder_layer_cls=TransformerEncoderLayer,
             prefix_mode=prefix_mode,
         )

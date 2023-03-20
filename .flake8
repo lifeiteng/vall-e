@@ -12,9 +12,9 @@ per-file-ignores =
     valle/utils/__init__.py: F401,
     valle/__init__.py: F401,
     valle/modules/__init__.py: F401,
-    valle/modules/scheduler.py: F401,
+    valle/modules/activation.py: E501,
     valle/modules/embedding.py: E203,
-    valle/bin/tokenizer.py: E501,
+    valle/modules/scheduler.py: F401,
     valle/modules/transformer.py: E501,
     valle/data/fbank.py: E501,
     valle/tests/*.py: F841
