@@ -76,7 +76,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
                     self.utt2neighbors[uttids[0]].append(utt2cut[uttids[0]])
                     continue
 
-                utt2prevutt = dict(zip(uttids[1:], uttids[:-1]))
+                utt2prevutt = dict(zip(uttids, [uttids[1]] + uttids[:-1]))
                 utt2postutt = dict(zip(uttids[:-1], uttids[1:]))
 
                 for utt in utt2prevutt:
@@ -96,7 +96,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
             else:
                 # Using the property of sorted keys to find previous utterance
                 # The keys has structure: LJ001-0010
-                utt2prevutt = dict(zip(uttids[1:], uttids[:-1]))
+                utt2prevutt = dict(zip(uttids, [uttids[1]] + uttids[:-1]))
                 utt2postutt = dict(zip(uttids[:-1], uttids[1:]))
 
                 for utt in utt2postutt:
@@ -133,11 +133,19 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
             prompts_cuts.append(prompts_cut)
 
         mini_duration = min([cut.duration for cut in prompts_cuts] + [3.0])
-        prompts_cuts = CutSet.from_cuts(prompts_cuts).truncate(
+        # prompts_cuts = CutSet.from_cuts(prompts_cuts).truncate(
+        #     max_duration=mini_duration,
+        #     offset_type="random",
+        #     preserve_id=True,
+        # )
+        prompts_cuts = CutSet(
+            cuts={k: cut for k, cut in enumerate(prompts_cuts)}
+        ).truncate(
             max_duration=mini_duration,
             offset_type="random",
-            preserve_id=True,
+            preserve_id=False,
         )
+
         prompts, prompts_lens = collate_features(
             prompts_cuts,
             executor=_get_executor(
