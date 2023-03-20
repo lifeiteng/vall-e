@@ -10,6 +10,7 @@ from lhotse.dataset.input_strategies import (
     PrecomputedFeatures,
     _get_executor,
 )
+from lhotse.utils import fastcopy
 
 
 class PromptedFeatures:
@@ -76,7 +77,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
                     self.utt2neighbors[uttids[0]].append(utt2cut[uttids[0]])
                     continue
 
-                utt2prevutt = dict(zip(uttids[1:], uttids[:-1]))
+                utt2prevutt = dict(zip(uttids, [uttids[1]] + uttids[:-1]))
                 utt2postutt = dict(zip(uttids[:-1], uttids[1:]))
 
                 for utt in utt2prevutt:
@@ -96,7 +97,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
             else:
                 # Using the property of sorted keys to find previous utterance
                 # The keys has structure: LJ001-0010
-                utt2prevutt = dict(zip(uttids[1:], uttids[:-1]))
+                utt2prevutt = dict(zip(uttids, [uttids[1]] + uttids[:-1]))
                 utt2postutt = dict(zip(uttids[:-1], uttids[1:]))
 
                 for utt in utt2postutt:
@@ -128,9 +129,9 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
         )
 
         prompts_cuts = []
-        for cut in cuts:
+        for k, cut in enumerate(cuts):
             prompts_cut = random.choice(self.utt2neighbors[cut.id])
-            prompts_cuts.append(prompts_cut)
+            prompts_cuts.append(fastcopy(prompts_cut, id=f"{cut.id}-{str(k)}"))
 
         mini_duration = min([cut.duration for cut in prompts_cuts] + [3.0])
         prompts_cuts = CutSet.from_cuts(prompts_cuts).truncate(
@@ -138,6 +139,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
             offset_type="random",
             preserve_id=True,
         )
+
         prompts, prompts_lens = collate_features(
             prompts_cuts,
             executor=_get_executor(
