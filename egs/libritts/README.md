@@ -80,6 +80,39 @@ bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 
 ```
 ![train](./demos/train.png)
 
+#### Prefix Mode 0 1 2 4 for NAR Decoder
+**Paper Chapter 5.1** "For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds from the same utterance."
+* **0**: no acoustic prompt tokens
+* **1**: random prefix of current batched utterances
+* **2**: random chunk of current batched utterances
+* **4**: same as the paper
+
+```
+# If train AR & NAR Decoders with prefix_mode 4
+bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
+            --num-epochs 10 --start-epoch 1 --prefix_mode 4 --exp_suffix "_mode4" \
+            --train-options "--train-stage 0 --dataset libritts --input-strategy PromptedPrecomputedFeatures"
+```
+
+#### Train AR Decoder and NAR Decoder individually
+* try larger `--max-duration 80`
+```
+# Train AR Decoder
+bash run.sh --stage 4 --stop-stage 4 --max-duration 80 --filter-max-duration 14 \
+            --num-epochs 10 --start-epoch 1 --prefix_mode 0 \
+            --train-options "--train-stage 1"
+
+# Train NAR Decoder with  --prefix_mode 0/1/2
+bash run.sh --stage 4 --stop-stage 4 --max-duration 60 --filter-max-duration 14 \
+            --num-epochs 10 --start-epoch 10 --prefix_mode 0 \
+            --train-options "--train-stage 2"
+
+# If train NAR Decoder with prefix_mode 4
+bash run.sh --stage 4 --stop-stage 4 --max-duration 60 --filter-max-duration 14 \
+            --num-epochs 10 --start-epoch 10 --prefix_mode 4 --exp_suffix "_mode4" \
+            --train-options "--train-stage 2 --dataset libritts --input-strategy PromptedPrecomputedFeatures"
+```
+
 ## Inference
 
 ```
