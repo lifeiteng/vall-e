@@ -26,11 +26,11 @@ import os
 from pathlib import Path
 
 import torch
-from icefall.utils import get_executor
 from lhotse import CutSet, NumpyHdf5Writer
 from lhotse.recipes.utils import read_manifests_if_cached
 from tqdm.auto import tqdm
 
+from icefall.utils import get_executor
 from valle.data import (
     AudioTokenConfig,
     AudioTokenExtractor,
@@ -118,7 +118,10 @@ def main():
         suffix=args.suffix,
     )
 
-    text_tokenizer = TextTokenizer()
+    if args.prefix == "aishell":
+        text_tokenizer = TextTokenizer(backend="pypinyin_g2p")
+    else:
+        text_tokenizer = TextTokenizer()
 
     # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
     # by remove encodec weight_norm
@@ -158,7 +161,7 @@ def main():
                     f"{args.output_dir}/{args.prefix}_fbank_{partition}"
                 )
 
-            if args.prefix == "ljspeech":
+            if args.prefix == "ljspeech" or args.prefix == "aishell":
                 cut_set = cut_set.resample(24000)
 
             with torch.no_grad():
@@ -176,6 +179,11 @@ def main():
                     text = c.supervisions[0].custom["normalized_text"]
                     text = text.replace("”", '"').replace("“", '"')
                     phonemes = tokenize_text(text_tokenizer, text=text)
+                elif args.prefix == "aishell":
+                    phonemes = tokenize_text(
+                        text_tokenizer, text=c.supervisions[0].text
+                    )
+                    c.supervisions[0].custom = {}
                 else:
                     assert args.prefix == "libritts"
                     phonemes = tokenize_text(
