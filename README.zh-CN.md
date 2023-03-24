@@ -91,6 +91,8 @@ pip install -e .
 * Provide GPU resources (MyEmail: `lifeiteng0422@163.com`)
 * <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
+## Docker 镜像
+一个用于训练 LibriTTS 的开箱即用的 docker 镜像已在[网址](https://hub.docker.com/r/sunaolan213/valle)上开源。欢迎下载使用。
 
 ## 引用
 
