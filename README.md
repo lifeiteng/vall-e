@@ -106,6 +106,9 @@ pip install -e .
 * <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
 
 
+## Docker image 
+A ready-to-use docker image for training LibriTTS is open-sourced at [link](https://hub.docker.com/r/sunaolan213/valle) with all dependencies in place.
+
 ## Citing
 
 To cite this repository:
