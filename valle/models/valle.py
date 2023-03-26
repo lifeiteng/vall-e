@@ -66,6 +66,7 @@ class VALLF(nn.Module):
             TransformerDecoderLayer, TransformerEncoderLayer
         ] = TransformerDecoderLayer,
         prefix_mode: int = 0,
+        share_embedding: bool = True,
     ):
         """
         Args:
@@ -216,14 +217,15 @@ class VALLF(nn.Module):
         )
         self.prefix_mode = prefix_mode
 
-        # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
-        self.ar_predict_layer.weight = self.ar_audio_embedding.weight
-        # We also share the parameters of the acoustic embedding layer and the output prediction layer,
-        # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
-        for j in range(0, 6):
-            self.nar_predict_layers[j].weight = self.nar_audio_embeddings[
-                j + 2
-            ].weight
+        if share_embedding:
+            # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
+            self.ar_predict_layer.weight = self.ar_audio_embedding.weight
+            # We also share the parameters of the acoustic embedding layer and the output prediction layer,
+            # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
+            for j in range(0, 6):
+                self.nar_predict_layers[j].weight = self.nar_audio_embeddings[
+                    j + 2
+                ].weight
 
         self.rng = random.Random(0)
 
