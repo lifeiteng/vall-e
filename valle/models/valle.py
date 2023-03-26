@@ -548,6 +548,7 @@ class VALLE(VALLF):
         norm_first: bool = True,
         add_prenet: bool = False,
         prefix_mode: int = 0,
+        share_embedding: bool = True,
     ):
         """
         Args:
@@ -567,6 +568,7 @@ class VALLE(VALLF):
             decoder_cls=TransformerEncoder,
             decoder_layer_cls=TransformerEncoderLayer,
             prefix_mode=prefix_mode,
+            share_embedding=share_embedding,
         )
 
     def forward(

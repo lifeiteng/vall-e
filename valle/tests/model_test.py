@@ -51,6 +51,8 @@ class TestModel(unittest.TestCase):
         params.norm_first = True
         params.add_prenet = False
         params.model_name = "VALL-F"
+        params.share_embedding = True
+
         params.prefix_mode = 0
         model = get_model(params)
         num_param = sum([p.numel() for p in model.parameters()])
@@ -88,6 +90,7 @@ class TestModel(unittest.TestCase):
         params.norm_first = False
         params.add_prenet = True
         params.model_name = "VALL-E"
+        params.share_embedding = True
 
         for device in self.devices:
             for mode in [0, 1, 2]:
@@ -129,6 +132,7 @@ class TestModel(unittest.TestCase):
         params.norm_first = False
         params.add_prenet = True
         params.model_name = "VALL-E"
+        params.share_embedding = False
 
         for device in self.devices:
             for mode in [4]:
