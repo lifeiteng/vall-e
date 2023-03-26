@@ -359,9 +359,12 @@ def load_checkpoint_if_available(
     saved_stage = saved_params.get("train_stage", 0)
     if params.train_stage != saved_stage:
         # switch training stage
-        params.start_epoch = 1
-        params.start_batch = 0
-        assert params.num_epochs >= saved_params["num_epochs"]
+        if params.train_stage:
+            params.start_epoch = 1
+            params.start_batch = 0
+        else:
+            # from --train-stage 1|2 to 0
+            assert params.num_epochs >= params.start_epoch
 
         for key in ["optimizer", "scheduler", "grad_scaler", "sampler"]:
             if key in saved_params:
@@ -792,9 +795,9 @@ def filter_short_and_long_utterances(
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
         if c.duration < min_duration or c.duration > max_duration:
-            logging.warning(
-                f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
-            )
+            # logging.warning(
+            #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
+            # )
             return False
         return True
 
