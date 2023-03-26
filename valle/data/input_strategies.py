@@ -10,6 +10,7 @@ from lhotse.dataset.input_strategies import (
     PrecomputedFeatures,
     _get_executor,
 )
+from lhotse.utils import fastcopy
 
 
 class PromptedFeatures:
@@ -39,7 +40,7 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
     :class:`InputStrategy` that reads pre-computed features, whose manifests
     are attached to cuts, from disk.
 
-    It automatically pads the feature matrices with pre or post feature .
+    It automatically pads the feature matrices with pre or post feature.
 
     .. automethod:: __call__
     """
@@ -101,12 +102,12 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
 
                 for utt in utt2postutt:
                     postutt = utt2postutt[utt]
-                    if utt[:5] == postutt[::5]:
+                    if utt[:5] == postutt[:5]:
                         self.utt2neighbors[utt].append(utt2cut[postutt])
 
                 for utt in utt2prevutt:
                     prevutt = utt2prevutt[utt]
-                    if utt[:5] == prevutt[::5] or not self.utt2neighbors[utt]:
+                    if utt[:5] == prevutt[:5] or not self.utt2neighbors[utt]:
                         self.utt2neighbors[utt].append(utt2cut[prevutt])
         else:
             raise ValueError
@@ -128,9 +129,9 @@ class PromptedPrecomputedFeatures(PrecomputedFeatures):
         )
 
         prompts_cuts = []
-        for cut in cuts:
+        for k, cut in enumerate(cuts):
             prompts_cut = random.choice(self.utt2neighbors[cut.id])
-            prompts_cuts.append(prompts_cut)
+            prompts_cuts.append(fastcopy(prompts_cut, id=f"{cut.id}-{str(k)}"))
 
         mini_duration = min([cut.duration for cut in prompts_cuts] + [3.0])
         # prompts_cuts = CutSet.from_cuts(prompts_cuts).truncate(

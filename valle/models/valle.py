@@ -66,6 +66,7 @@ class VALLF(nn.Module):
             TransformerDecoderLayer, TransformerEncoderLayer
         ] = TransformerDecoderLayer,
         prefix_mode: int = 0,
+        share_embedding: bool = True,
     ):
         """
         Args:
@@ -216,14 +217,15 @@ class VALLF(nn.Module):
         )
         self.prefix_mode = prefix_mode
 
-        # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
-        self.ar_predict_layer.weight = self.ar_audio_embedding.weight
-        # We also share the parameters of the acoustic embedding layer and the output prediction layer,
-        # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
-        for j in range(0, 6):
-            self.nar_predict_layers[j].weight = self.nar_audio_embeddings[
-                j + 2
-            ].weight
+        if share_embedding:
+            # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
+            self.ar_predict_layer.weight = self.ar_audio_embedding.weight
+            # We also share the parameters of the acoustic embedding layer and the output prediction layer,
+            # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
+            for j in range(0, 6):
+                self.nar_predict_layers[j].weight = self.nar_audio_embeddings[
+                    j + 2
+                ].weight
 
         self.rng = random.Random(0)
 
@@ -727,46 +729,21 @@ class VALLE(VALLF):
 
                 targets = targets[:, prefix_len:]
                 prompts_len += prefix_len
-            elif self.prefix_mode == 2:
-                # random prefix
-                min_y_len = y_lens.min().item()
-                prefix_start = torch.randint(
-                    0, int(0.75 * min_y_len), size=()
-                ).item()
-                prefix_end = torch.randint(
-                    prefix_start + int(0.25 * min_y_len),
-                    prefix_start + int(0.30 * min_y_len) + 1,
-                    size=(),
-                ).item()
-                prefix_end = min(prefix_end, min_y_len)
-                assert prefix_end > prefix_start
+            elif self.prefix_mode in [2, 4]:
+                if self.prefix_mode == 2:
+                    # random prefix
+                    prefix_len = min(225, int(0.25 * y_lens.min().item()))
 
-                y_prompts = self.nar_audio_embeddings[0](
-                    y[:, prefix_start:prefix_end]
-                )
-                y_emb = self.nar_audio_embeddings[0](y)
-                for j in range(1, 8):
-                    y_prompts += self.nar_audio_embeddings[j](
-                        codes[:, prefix_start:prefix_end, j]
-                    )
-                    if j < nar_stage:
-                        y_emb += self.nar_audio_embeddings[j](codes[..., j])
-                y_emb = torch.concat([y_prompts, y_emb], axis=1)
+                    y_prompts_codes = []
+                    for b in range(x.shape[0]):
+                        start = self.rng.randint(
+                            0, y_lens[b].item() - prefix_len
+                        )
+                        y_prompts_codes.append(
+                            codes[b, start : start + prefix_len]
+                        )
+                    y_prompts_codes = torch.stack(y_prompts_codes, dim=0)
 
-                prompts_len += prefix_end - prefix_start
-                xy_padding_mask = torch.concat(
-                    [
-                        x_mask,
-                        F.pad(
-                            y_mask, (prefix_end - prefix_start, 0), value=False
-                        ),
-                    ],
-                    dim=1,
-                )
-
-                prefix_len = 0
-            elif self.prefix_mode == 4:
-                assert y_prompts_codes is not None
                 y_prompts = self.nar_audio_embeddings[0](
                     y_prompts_codes[..., 0]
                 )
@@ -789,7 +766,6 @@ class VALLE(VALLF):
                 )
 
                 prefix_len = 0
-
             else:
                 raise ValueError
 

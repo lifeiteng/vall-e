@@ -231,8 +231,14 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--filter-min-duration",
+        type=float,
+        default=0.0,
+        help="Keep only utterances with duration > this.",
+    )
+    parser.add_argument(
         "--filter-max-duration",
-        type=int,
+        type=float,
         default=20.0,
         help="Keep only utterances with duration < this.",
     )
@@ -353,9 +359,12 @@ def load_checkpoint_if_available(
     saved_stage = saved_params.get("train_stage", 0)
     if params.train_stage != saved_stage:
         # switch training stage
-        params.start_epoch = 1
-        params.start_batch = 0
-        assert params.num_epochs >= saved_params["num_epochs"]
+        if params.train_stage:
+            params.start_epoch = 1
+            params.start_batch = 0
+        else:
+            # from --train-stage 1|2 to 0
+            assert params.num_epochs >= params.start_epoch
 
         for key in ["optimizer", "scheduler", "grad_scaler", "sampler"]:
             if key in saved_params:
@@ -780,10 +789,12 @@ def train_one_epoch(
         params.best_train_loss = params.train_loss
 
 
-def filter_short_and_long_utterances(cuts: CutSet, max_duration) -> CutSet:
+def filter_short_and_long_utterances(
+    cuts: CutSet, min_duration: float, max_duration: float
+) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
-        if c.duration < 0.6 or c.duration > max_duration:
+        if c.duration < min_duration or c.duration > max_duration:
             # logging.warning(
             #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             # )
@@ -946,10 +957,10 @@ def run(rank, world_size, args):
     valid_cuts = dataset.dev_cuts()
 
     train_cuts = filter_short_and_long_utterances(
-        train_cuts, params.filter_max_duration
+        train_cuts, params.filter_min_duration, params.filter_max_duration
     )
     valid_cuts = filter_short_and_long_utterances(
-        valid_cuts, params.filter_max_duration
+        valid_cuts, params.filter_min_duration, params.filter_max_duration
     )
 
     train_dl = dataset.train_dataloaders(

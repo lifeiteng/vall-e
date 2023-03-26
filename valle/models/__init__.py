@@ -51,7 +51,14 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         type=int,
         default=0,
         help="The mode for how to prefix VALL-E NAR Decoder, "
-        "0: no prefix, 1: 0 to random, 2: random to random.",
+        "0: no prefix, 1: 0 to random, 2: random to random, 4: chunk of pre or post utterance.",
+    )
+
+    parser.add_argument(
+        "--share-embedding",
+        type=str2bool,
+        default=True,
+        help="Share the parameters of the output projection layer with the parameters of the acoustic embedding.",
     )
 
 
@@ -64,6 +71,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             norm_first=params.norm_first,
             add_prenet=params.add_prenet,
             prefix_mode=params.prefix_mode,
+            share_embedding=params.share_embedding,
         )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
@@ -73,6 +81,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             norm_first=params.norm_first,
             add_prenet=params.add_prenet,
             prefix_mode=params.prefix_mode,
+            share_embedding=params.share_embedding,
         )
     else:
         assert params.model_name in ["Transformer"]
