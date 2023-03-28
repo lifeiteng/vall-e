@@ -162,8 +162,8 @@ class AudioTokenizer:
 
         if not device:
             device = torch.device("cpu")
-            # if torch.cuda.is_available():
-            #    device = torch.device("cuda:0")
+            if torch.cuda.is_available():
+                device = torch.device("cuda:0")
 
         self._device = device
 
