@@ -286,6 +286,61 @@ class VALLF(nn.Module):
                 if pair[0].startswith("nar_"):
                     yield pair
 
+    def _prepare_prompts(self, y, y_lens, codes, nar_stage, y_prompts_codes):
+        # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
+        # from the same utterance.
+        # We implement this differently.
+        if self.prefix_mode == 0:
+            # no prefix
+            prefix_len = 0
+            y_emb = self.nar_audio_embeddings[0](y)
+            for j in range(1, nar_stage):
+                # Formula (4) (5)
+                y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
+        elif self.prefix_mode == 1:
+            # prefix at begining
+            int_low = (0.25 * y_lens.min()).type(torch.int64).item()
+            prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
+            prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
+
+            y_prompts = self.nar_audio_embeddings[0](y[:, :prefix_len])
+            y_emb = self.nar_audio_embeddings[0](y[:, prefix_len:])
+            for j in range(1, 8):
+                y_prompts += self.nar_audio_embeddings[j](
+                    codes[:, :prefix_len, j]
+                )
+                if j < nar_stage:
+                    y_emb += self.nar_audio_embeddings[j](
+                        codes[:, prefix_len:, j]
+                    )
+            y_emb = torch.concat([y_prompts, y_emb], axis=1)
+        elif self.prefix_mode in [2, 4]:
+            if self.prefix_mode == 2:
+                # random prefix
+                prefix_len = min(225, int(0.25 * y_lens.min().item()))
+
+                y_prompts_codes = []
+                for b in range(codes.shape[0]):
+                    start = self.rng.randint(0, y_lens[b].item() - prefix_len)
+                    y_prompts_codes.append(codes[b, start : start + prefix_len])
+                y_prompts_codes = torch.stack(y_prompts_codes, dim=0)
+
+            y_prompts = self.nar_audio_embeddings[0](y_prompts_codes[..., 0])
+            y_emb = self.nar_audio_embeddings[0](y)
+            for j in range(1, 8):
+                y_prompts += self.nar_audio_embeddings[j](
+                    y_prompts_codes[..., j]
+                )
+                if j < nar_stage:
+                    y_emb += self.nar_audio_embeddings[j](codes[..., j])
+            y_emb = torch.concat([y_prompts, y_emb], axis=1)
+
+            prefix_len = 0
+        else:
+            raise ValueError
+
+        return y_emb, prefix_len
+
     def forward(
         self,
         x: torch.Tensor,
@@ -314,10 +369,17 @@ class VALLF(nn.Module):
         """
         assert x.ndim == 2, x.shape
         assert x_lens.ndim == 1, x_lens.shape
+
+        y_prompts_codes = None
+        if isinstance(y, PromptedFeatures):
+            y_prompts_codes, y = y.data
+            prompts_len, y_lens = y_lens.data
+            assert prompts_len.min() == prompts_len.max()
+            assert self.prefix_mode == 4
+            y_prompts_codes = y_prompts_codes.type(torch.int64)
+
         assert y.ndim == 3, y.shape
         assert y_lens.ndim == 1, y_lens.shape
-
-        assert torch.all(x_lens > 0)
 
         # NOTE: x has been padded in TextTokenCollater
         x_mask = make_pad_mask(x_lens).to(x.device)
@@ -380,14 +442,18 @@ class VALLF(nn.Module):
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
-            y_emb = self.nar_audio_embeddings[0](y)
-            for j in range(1, nar_stage):
-                # Formula (4) (5)
-                y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
+            y_len = y_lens.max()
+            targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
+            y_emb, prefix_len = self._prepare_prompts(
+                y, y_lens, codes, nar_stage, y_prompts_codes
+            )
+            targets = targets[:, -(y_len - prefix_len) :]
+
+            if self.prefix_mode in [2, 4]:
+                y_mask = F.pad(y_mask, (y_emb.shape[1] - y_len, 0), value=False)
 
             y_pos = self.nar_audio_prenet(y_emb)
             y_pos = self.nar_audio_position(y_pos)
-            targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
             y_dec, _ = self.nar_decoder(
                 (y_pos, self.nar_stage_embeddings[nar_stage - 1].weight),
@@ -397,10 +463,11 @@ class VALLF(nn.Module):
                 memory_mask=None,
                 memory_key_padding_mask=x_mask,
             )
-            logits = self.nar_predict_layers[nar_stage - 1](y_dec).permute(
-                0, 2, 1
-            )
+            logits = self.nar_predict_layers[nar_stage - 1](
+                y_dec[:, -(y_len - prefix_len) :]
+            ).permute(0, 2, 1)
             # loss
+            total_length = (y_lens).sum().type(torch.float32)
             total_loss += F.cross_entropy(
                 logits,
                 targets,
@@ -416,7 +483,7 @@ class VALLF(nn.Module):
                     ),
                     targets,
                 ).item()
-                * y_lens.sum().type(torch.float32)
+                * (total_length / (total_length - prefix_len * x.shape[0]))
             )
 
         if train_stage == 0:
@@ -464,7 +531,7 @@ class VALLF(nn.Module):
         x_mask = make_pad_mask(x_lens).to(x.device)
 
         prompts = y
-        prompts_len = y.shape[1]
+        prefix_len = y.shape[1]
 
         # AR Decoder
         # TODO: Managing decoder steps avoid repetitive computation
@@ -489,32 +556,44 @@ class VALLF(nn.Module):
                 memory_key_padding_mask=x_mask,
             )
             logits = self.ar_predict_layer(y_dec[:, -1])
-            if top_k > 0:
-                samples = topk_sampling(
-                    logits, top_k=top_k, top_p=1.0, temperature=temperature
-                )
-            else:
-                samples = torch.multinomial(
-                    F.softmax(logits, dim=-1),
-                    num_samples=1,
-                )
+            samples = topk_sampling(
+                logits, top_k=top_k, top_p=1.0, temperature=temperature
+            )
 
             if (
                 samples[0, 0] == NUM_AUDIO_TOKENS
-                or (y.shape[1] - prompts_len) > x_lens.max() * 16
+                or (y.shape[1] - prefix_len) > x_lens.max() * 16
             ):
-                print(f"VALL-F EOS [{prompts_len} -> {y.shape[1]}]")
+                print(f"VALL-F EOS [{prefix_len} -> {y.shape[1]}]")
                 break
 
             y = torch.concat([y, samples], dim=1)
 
-        codes = [y[:, prompts_len:]]
+        codes = [y[:, prefix_len:]]
         # Non-AR Decoders
+        y_emb = self.nar_audio_embeddings[0](y)
+        if self.prefix_mode in [2, 4]:  # Exclude enrolled_phonemes
+            enrolled_len = enroll_x_lens.max().item()
+            # SOS + Synthesis Text + EOS
+            text = torch.concat(
+                [
+                    text[:, :1],
+                    text[:, enrolled_len - 1 :],
+                ],
+                dim=1,
+            )
+            assert text.shape[0] == 1
+
         x = self.nar_text_embedding(text)
         x = self.nar_text_prenet(x)
         x = self.nar_text_position(x)
 
-        y_emb = self.nar_audio_embeddings[0](y)
+        if self.prefix_mode != 0:
+            for j in range(1, 8):
+                y_emb[:, :prefix_len] += self.nar_audio_embeddings[j](
+                    prompts[..., j]
+                )
+
         for i, (predict_layer, embedding_layer) in enumerate(
             zip(
                 self.nar_predict_layers,
@@ -530,14 +609,16 @@ class VALLF(nn.Module):
                 memory_mask=None,
                 memory_key_padding_mask=x_mask,
             )
-            logits = predict_layer(y_dec[:, prompts_len:])
-
+            logits = predict_layer(y_dec[:, prefix_len:])
             samples = torch.argmax(logits, dim=-1)
             codes.append(samples)
             # Formula (4) (5)
             if i < 6:
-                y_emb[:, :prompts_len] += embedding_layer(prompts[..., i + 1])
-                y_emb[:, prompts_len:] += embedding_layer(samples)
+                if self.prefix_mode == 0:
+                    y_emb[:, :prefix_len] += embedding_layer(
+                        prompts[..., i + 1]
+                    )
+                y_emb[:, prefix_len:] += embedding_layer(samples)
 
         assert len(codes) == 8
         return torch.stack(codes, dim=-1)
@@ -618,7 +699,6 @@ class VALLE(VALLF):
 
         assert y.ndim == 3, y.shape
         assert y_lens.ndim == 1, y_lens.shape
-        assert torch.all(x_lens > 0)
 
         # NOTE: x has been padded in TextTokenCollater
         x_mask = make_pad_mask(x_lens).to(x.device)
@@ -707,77 +787,22 @@ class VALLE(VALLF):
             x = self.nar_text_prenet(x)
             x = self.nar_text_position(x)
 
-            prompts_len = x_len
             targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
-            # 5.1 For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds
-            # from the same utterance.
-            # We implement this differently.
-            if self.prefix_mode == 0:
-                # no prefix
-                prefix_len = 0
-                y_emb = self.nar_audio_embeddings[0](y)
-                for j in range(1, nar_stage):
-                    # Formula (4) (5)
-                    y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
-            elif self.prefix_mode == 1:
-                # prefix at begining
-                int_low = (0.25 * y_lens.min()).type(torch.int64).item()
-                prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
-                prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
+            y_emb, prefix_len = self._prepare_prompts(
+                y, y_lens, codes, nar_stage, y_prompts_codes
+            )
+            y_len = y_lens.max()
+            targets = targets[:, -(y_len - prefix_len) :]
 
-                y_prompts = self.nar_audio_embeddings[0](y[:, :prefix_len])
-                y_emb = self.nar_audio_embeddings[0](y[:, prefix_len:])
-                for j in range(1, 8):
-                    y_prompts += self.nar_audio_embeddings[j](
-                        codes[:, :prefix_len, j]
-                    )
-                    if j < nar_stage:
-                        y_emb += self.nar_audio_embeddings[j](
-                            codes[:, prefix_len:, j]
-                        )
-                y_emb = torch.concat([y_prompts, y_emb], axis=1)
-
-                targets = targets[:, prefix_len:]
-                prompts_len += prefix_len
-            elif self.prefix_mode in [2, 4]:
-                if self.prefix_mode == 2:
-                    # random prefix
-                    prefix_len = min(225, int(0.25 * y_lens.min().item()))
-
-                    y_prompts_codes = []
-                    for b in range(x.shape[0]):
-                        start = self.rng.randint(
-                            0, y_lens[b].item() - prefix_len
-                        )
-                        y_prompts_codes.append(
-                            codes[b, start : start + prefix_len]
-                        )
-                    y_prompts_codes = torch.stack(y_prompts_codes, dim=0)
-
-                y_prompts = self.nar_audio_embeddings[0](
-                    y_prompts_codes[..., 0]
-                )
-                y_emb = self.nar_audio_embeddings[0](y)
-                for j in range(1, 8):
-                    y_prompts += self.nar_audio_embeddings[j](
-                        y_prompts_codes[..., j]
-                    )
-                    if j < nar_stage:
-                        y_emb += self.nar_audio_embeddings[j](codes[..., j])
-                y_emb = torch.concat([y_prompts, y_emb], axis=1)
-
-                prompts_len += y_prompts.shape[1]
+            # VALL-E
+            if self.prefix_mode in [2, 4]:
                 xy_padding_mask = torch.concat(
                     [
                         x_mask,
-                        F.pad(y_mask, (y_prompts.shape[1], 0), value=False),
+                        F.pad(y_mask, (y_emb.shape[1] - y_len, 0), value=False),
                     ],
                     dim=1,
                 )
-
-                prefix_len = 0
-            else:
-                raise ValueError
 
             y_pos = self.nar_audio_prenet(y_emb)
             y_pos = self.nar_audio_position(y_pos)
@@ -788,7 +813,7 @@ class VALLE(VALLF):
                 # is_causal=False,
             )
             logits = self.nar_predict_layers[nar_stage - 1](
-                xy_dec[:, prompts_len:]
+                xy_dec[:, -(y_len - prefix_len) :]
             ).permute(0, 2, 1)
 
             # loss
@@ -896,15 +921,9 @@ class VALLE(VALLF):
                 mask=xy_attn_mask,
             )
             logits = self.ar_predict_layer(xy_dec[:, -1])
-            if top_k > 0:
-                samples = topk_sampling(
-                    logits, top_k=top_k, top_p=1.0, temperature=temperature
-                )
-            else:
-                samples = torch.multinomial(
-                    F.softmax(logits, dim=-1),
-                    num_samples=1,
-                )
+            samples = topk_sampling(
+                logits, top_k=top_k, top_p=1.0, temperature=temperature
+            )
 
             if (
                 samples[0, 0] == NUM_AUDIO_TOKENS
@@ -925,22 +944,19 @@ class VALLE(VALLF):
         if self.prefix_mode in [2, 4]:  # Exclude enrolled_phonemes
             enrolled_len = enroll_x_lens.max().item()
             # SOS + Synthesis Text + EOS
-            x = torch.concat(
+            text = torch.concat(
                 [
                     text[:, :1],
                     text[:, enrolled_len - 1 :],
                 ],
                 dim=1,
             )
-            x = self.nar_text_embedding(x)
-            x = self.nar_text_prenet(x)
-            x = self.nar_text_position(x)
             text_len = text_len - (enrolled_len - 2)
-            assert x.shape[0] == 1
-        else:
-            x = self.nar_text_embedding(text)
-            x = self.nar_text_prenet(x)
-            x = self.nar_text_position(x)
+            assert text.shape[0] == 1
+
+        x = self.nar_text_embedding(text)
+        x = self.nar_text_prenet(x)
+        x = self.nar_text_position(x)
 
         if self.prefix_mode == 0:
             for i, (predict_layer, embedding_layer) in enumerate(

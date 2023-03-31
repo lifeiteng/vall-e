@@ -43,6 +43,7 @@ class TestModel(unittest.TestCase):
         x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
         x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
         x_lens[-1] = 8
+        enroll_x_lens = torch.from_numpy(np.random.randint(1, 3, size=[4]))
 
         y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
@@ -53,27 +54,30 @@ class TestModel(unittest.TestCase):
         params.model_name = "VALL-F"
         params.share_embedding = True
 
-        params.prefix_mode = 0
-        model = get_model(params)
-        num_param = sum([p.numel() for p in model.parameters()])
-
         for device in self.devices:
-            # VALL-F
-            model.to(device)
-            x = x.to(device)
-            x_lens = x_lens.to(device)
-            y = y.to(device)
-            y_lens = y_lens.to(device)
+            for mode in [0, 1, 2]:
+                params.prefix_mode = mode
+                # VALL-E
+                model = get_model(params)
 
-            # Training
-            for train_stage in [0, 1, 2]:
-                codes, loss, metrics = model(
-                    x, x_lens, y, y_lens, train_stage=train_stage
+                # VALL-F
+                model.to(device)
+                x = x.to(device)
+                x_lens = x_lens.to(device)
+                y = y.to(device)
+                y_lens = y_lens.to(device)
+
+                # Training
+                for train_stage in [0, 1, 2]:
+                    codes, loss, metrics = model(
+                        x, x_lens, y, y_lens, train_stage=train_stage
+                    )
+
+                # Inference
+                model.eval()
+                codes = model.inference(
+                    x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
                 )
-
-            # Inference
-            model.eval()
-            codes = model.inference(x[-1:], x_lens[-1:], y[-1:])
 
     def test_valle(self):
         params = AttributeDict()
@@ -114,7 +118,7 @@ class TestModel(unittest.TestCase):
                     x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
                 )
 
-    def test_valle_prefix4(self):
+    def test_vallef_prefix4(self):
         params = AttributeDict()
         params.decoder_dim = 64
         params.nhead = 16
@@ -134,29 +138,30 @@ class TestModel(unittest.TestCase):
 
         params.norm_first = False
         params.add_prenet = True
-        params.model_name = "VALL-E"
         params.share_embedding = False
 
         for device in self.devices:
-            for mode in [4]:
-                params.prefix_mode = mode
-                # VALL-E
-                model = get_model(params)
-                model.to(device)
-                x = x.to(device)
-                x_lens = x_lens.to(device)
-                y = y.to(device)
+            for model_name in ["VALL-E", "VALL-F"]:
+                for mode in [4]:
+                    params.prefix_mode = mode
+                    params.model_name = model_name
+                    # VALL-E
+                    model = get_model(params)
+                    model.to(device)
+                    x = x.to(device)
+                    x_lens = x_lens.to(device)
+                    y = y.to(device)
 
-                _y = PromptedFeatures(prompts, y).to(device)
-                _y_lens = PromptedFeatures(prompts_lens, y_lens).to(device)
+                    _y = PromptedFeatures(prompts, y).to(device)
+                    _y_lens = PromptedFeatures(prompts_lens, y_lens).to(device)
 
-                # Training
-                codes, loss, metrics = model(x, x_lens, _y, _y_lens)
-                # Inference
-                model.eval()
-                codes = model.inference(
-                    x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
-                )
+                    # Training
+                    codes, loss, metrics = model(x, x_lens, _y, _y_lens)
+                    # Inference
+                    model.eval()
+                    codes = model.inference(
+                        x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
+                    )
 
     def test_topmetric(self):
         metric_top10 = MulticlassAccuracy(1024, top_k=10, average="micro")
