@@ -348,6 +348,9 @@ def load_checkpoint_if_available(
 
     assert filename.is_file(), f"{filename} does not exist!"
 
+    if isinstance(model, DDP):
+        raise ValueError("load_checkpoint before DDP")
+
     saved_params = load_checkpoint(
         filename,
         model=model,
@@ -862,6 +865,9 @@ def run(rank, world_size, args):
         model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
+    checkpoints = load_checkpoint_if_available(
+        params=params, model=model, model_avg=model_avg
+    )
 
     model.to(device)
     if world_size > 1:
@@ -927,10 +933,6 @@ def run(rank, world_size, args):
 
     scheduler = get_scheduler(params, optimizer)
     optimizer.zero_grad()
-
-    checkpoints = load_checkpoint_if_available(
-        params=params, model=model, model_avg=model_avg
-    )
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
