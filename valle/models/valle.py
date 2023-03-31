@@ -712,8 +712,8 @@ class VALLE(VALLF):
                     # Formula (4) (5)
                     y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
             elif self.prefix_mode == 1:
-                # prefix at begin
-                int_low = (0.15 * y_lens.min()).type(torch.int64).item()
+                # prefix at begining
+                int_low = (0.25 * y_lens.min()).type(torch.int64).item()
                 prefix_len = torch.randint(int_low, int_low * 2, size=()).item()
                 prefix_len = min(prefix_len, 225)  # 24000/320 * 3s = 225 frames
 
