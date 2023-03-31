@@ -31,7 +31,7 @@ from valle.modules.transformer import (
     TransformerEncoderLayer,
 )
 
-NUM_TEXT_TOKENS = 128
+NUM_TEXT_TOKENS = 512
 NUM_AUDIO_TOKENS = 1024  # EnCodec RVQ bins
 NUM_MEL_BINS = 100  # BigVGAN bigvgan_24khz_100band
 
