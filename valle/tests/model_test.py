@@ -66,7 +66,10 @@ class TestModel(unittest.TestCase):
             y_lens = y_lens.to(device)
 
             # Training
-            codes, loss, metrics = model(x, x_lens, y, y_lens)
+            for train_stage in [0, 1, 2]:
+                codes, loss, metrics = model(
+                    x, x_lens, y, y_lens, train_stage=train_stage
+                )
 
             # Inference
             model.eval()

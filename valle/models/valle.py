@@ -308,7 +308,7 @@ class VALLF(nn.Module):
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
           train_stage:
-            Not used in this model.
+            0: AR & NAR modules, 1: AR modules, 2: NAR modules
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
@@ -344,77 +344,85 @@ class VALLF(nn.Module):
             return y[:, :-1], y[:, 1:]
 
         y, targets = pad_y_eos(codes[..., 0], eos_id=NUM_AUDIO_TOKENS)
-        y_emb = self.ar_audio_embedding(y)
-        y_emb = self.ar_audio_prenet(y_emb)
-        y_pos = self.ar_audio_position(y_emb)
 
-        y_len = y_lens.max()
-        tgt_mask = torch.triu(
-            torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
-            diagonal=1,
-        )
-        y_dec, _ = self.ar_decoder(
-            (y_pos, None),
-            x,
-            tgt_mask=tgt_mask,
-            tgt_key_padding_mask=y_mask,
-            memory_mask=None,
-            memory_key_padding_mask=x_mask,
-        )
-        logits = self.ar_predict_layer(y_dec).permute(0, 2, 1)
-        # loss
-        total_loss = F.cross_entropy(logits, targets, reduction=reduction)
-        metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
-            logits.detach(), targets
-        ).item() * y_lens.sum().type(torch.float32)
+        if train_stage in [0, 1]:
+            y_emb = self.ar_audio_embedding(y)
+            y_emb = self.ar_audio_prenet(y_emb)
+            y_pos = self.ar_audio_position(y_emb)
+
+            y_len = y_lens.max()
+            tgt_mask = torch.triu(
+                torch.ones(y_len, y_len, device=y.device, dtype=torch.bool),
+                diagonal=1,
+            )
+            y_dec, _ = self.ar_decoder(
+                (y_pos, None),
+                x,
+                tgt_mask=tgt_mask,
+                tgt_key_padding_mask=y_mask,
+                memory_mask=None,
+                memory_key_padding_mask=x_mask,
+            )
+            logits = self.ar_predict_layer(y_dec).permute(0, 2, 1)
+            # loss
+            total_loss = F.cross_entropy(logits, targets, reduction=reduction)
+            metrics["ArTop10Accuracy"] = self.ar_accuracy_metric(
+                logits.detach(), targets
+            ).item() * y_lens.sum().type(torch.float32)
 
         # Non-AR Decoders
-        nar_stage = self.rng.choices(
-            (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
-        )[0]
+        if train_stage in [0, 2]:
+            nar_stage = self.rng.choices(
+                (1, 2, 3, 4, 5, 6, 7), weights=[1.0 / 7] * 7, k=1
+            )[0]
 
-        x = self.nar_text_embedding(text)
-        x = self.nar_text_prenet(x)
-        x = self.nar_text_position(x)
+            x = self.nar_text_embedding(text)
+            x = self.nar_text_prenet(x)
+            x = self.nar_text_position(x)
 
-        y_emb = self.nar_audio_embeddings[0](y)
-        for j in range(1, nar_stage):
-            # Formula (4) (5)
-            y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
+            y_emb = self.nar_audio_embeddings[0](y)
+            for j in range(1, nar_stage):
+                # Formula (4) (5)
+                y_emb = y_emb + self.nar_audio_embeddings[j](codes[..., j])
 
-        y_pos = self.nar_audio_prenet(y_emb)
-        y_pos = self.nar_audio_position(y_pos)
-        targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
+            y_pos = self.nar_audio_prenet(y_emb)
+            y_pos = self.nar_audio_position(y_pos)
+            targets = codes[..., nar_stage] + NUM_AUDIO_TOKENS * y_mask_int
 
-        y_dec, _ = self.nar_decoder(
-            (y_pos, self.nar_stage_embeddings[nar_stage - 1].weight),
-            x,
-            tgt_mask=None,
-            tgt_key_padding_mask=y_mask,
-            memory_mask=None,
-            memory_key_padding_mask=x_mask,
-        )
-        logits = self.nar_predict_layers[nar_stage - 1](y_dec).permute(0, 2, 1)
-        # loss
-        total_loss += F.cross_entropy(
-            logits,
-            targets,
-            ignore_index=NUM_AUDIO_TOKENS,
-            reduction=reduction,
-        )
-        metrics["NarTop10Accuracy"] = (
-            self.nar_accuracy_metric(
-                F.pad(
-                    logits.detach(),
-                    (0, 0, 0, 1, 0, 0),
-                    value=logits.min().cpu().item(),
-                ),
+            y_dec, _ = self.nar_decoder(
+                (y_pos, self.nar_stage_embeddings[nar_stage - 1].weight),
+                x,
+                tgt_mask=None,
+                tgt_key_padding_mask=y_mask,
+                memory_mask=None,
+                memory_key_padding_mask=x_mask,
+            )
+            logits = self.nar_predict_layers[nar_stage - 1](y_dec).permute(
+                0, 2, 1
+            )
+            # loss
+            total_loss += F.cross_entropy(
+                logits,
                 targets,
-            ).item()
-            * y_lens.sum().type(torch.float32)
-        )
+                ignore_index=NUM_AUDIO_TOKENS,
+                reduction=reduction,
+            )
+            metrics["NarTop10Accuracy"] = (
+                self.nar_accuracy_metric(
+                    F.pad(
+                        logits.detach(),
+                        (0, 0, 0, 1, 0, 0),
+                        value=logits.min().cpu().item(),
+                    ),
+                    targets,
+                ).item()
+                * y_lens.sum().type(torch.float32)
+            )
 
-        return ((x, codes), total_loss / 2.0, metrics)
+        if train_stage == 0:
+            total_loss = total_loss / 2.0
+
+        return ((x, codes), total_loss, metrics)
 
     def inference(
         self,
@@ -593,7 +601,7 @@ class VALLE(VALLF):
             A 1-D tensor of shape (N,). It contains the number of tokens in `x`
             before padding.
           train_stage:
-            0: all part, 1: AR part, 2: NAR part
+            0: AR & NAR modules, 1: AR modules, 2: NAR modules
         Returns:
           Return the predicted audio code matrix, cross-entropy loss and Top-10 accuracy.
         """
