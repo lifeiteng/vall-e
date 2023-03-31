@@ -296,9 +296,9 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 100,  # 10: debug 100+: train
+            "log_interval": 100,  # 10: debug 100: train
             "reset_interval": 200,
-            "valid_interval": 5000,  # For the 100h subset, use 800
+            "valid_interval": 10000,
             # parameters for TTS
             "env_info": get_env_info(),
         }
@@ -615,6 +615,26 @@ def train_one_epoch(
     elif params.dtype in ["float16", "fp16"]:
         dtype, enabled = torch.float16, True
 
+    def evaluate():
+        logging.info("Computing validation loss")
+        with torch.cuda.amp.autocast(dtype=dtype):
+            valid_info = compute_validation_loss(
+                params=params,
+                model=model,
+                valid_dl=valid_dl,
+                world_size=world_size,
+            )
+        model.train()
+        logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
+        logging.info(
+            f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+        )
+
+        if tb_writer is not None:
+            valid_info.write_summary(
+                tb_writer, "train/valid_", params.batch_idx_train
+            )
+
     batch_idx = 0
     while True:
         try:
@@ -766,24 +786,10 @@ def train_one_epoch(
                     )
 
         if params.batch_idx_train % params.valid_interval == 0:
-            logging.info("Computing validation loss")
-            with torch.cuda.amp.autocast(dtype=dtype):
-                valid_info = compute_validation_loss(
-                    params=params,
-                    model=model,
-                    valid_dl=valid_dl,
-                    world_size=world_size,
-                )
-            model.train()
-            logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
-            logging.info(
-                f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-            )
+            evaluate()
 
-            if tb_writer is not None:
-                valid_info.write_summary(
-                    tb_writer, "train/valid_", params.batch_idx_train
-                )
+    if True:  # eval every epoch
+        evaluate()
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
