@@ -362,16 +362,23 @@ def load_checkpoint_if_available(
     saved_stage = saved_params.get("train_stage", 0)
     if params.train_stage != saved_stage:
         # switch training stage
-        if params.train_stage:
+        if params.train_stage and saved_stage:  # switch between 1 and 2
             params.start_epoch = 1
             params.start_batch = 0
         else:
-            # from --train-stage 1|2 to 0
+            # switch between 0 and 1/2
             assert params.num_epochs >= params.start_epoch
+            params.batch_idx_train = saved_params["batch_idx_train"]
 
-        for key in ["optimizer", "scheduler", "grad_scaler", "sampler"]:
+        for key in ["optimizer", "grad_scaler", "sampler"]:
             if key in saved_params:
                 saved_params.pop(key)
+
+        # when base on stage 0, we keep scheduler
+        if saved_stage != 0:
+            for key in ["scheduler"]:
+                if key in saved_params:
+                    saved_params.pop(key)
 
         best_train_filename = params.exp_dir / "best-train-loss.pt"
         if best_train_filename.is_file():
