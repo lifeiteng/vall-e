@@ -115,7 +115,15 @@ class TextTokenizer:
 
 def tokenize_text(tokenizer: TextTokenizer, text: str):
     if isinstance(tokenizer.backend, PypinyinBackend):  # for PypinyinBackend
-        return tokenizer(text)
+        tokenlist = tokenizer(text)
+        new_tokenlist = []
+        for tok in tokenlist:  # need to replace  " " with "_"
+            tmp_tok = tok.strip()
+            if tmp_tok == "":
+                new_tokenlist.append("_")
+            else:
+                new_tokenlist.append(tmp_tok)
+        return new_tokenlist
     phonemes = tokenizer([text.strip()])
     return phonemes[0].replace(" ", "_")  # k2symbols
 
