@@ -76,7 +76,10 @@ class TestModel(unittest.TestCase):
                 # Inference
                 model.eval()
                 codes = model.inference(
-                    x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
+                    x[-1:],
+                    x_lens[-1:],
+                    y[-1:],
+                    enroll_x_lens=enroll_x_lens[-1:],
                 )
 
     def test_valle(self):
