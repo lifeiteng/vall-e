@@ -53,6 +53,7 @@ class TestModel(unittest.TestCase):
         params.add_prenet = False
         params.model_name = "VALL-F"
         params.share_embedding = True
+        params.scale_factor = 1.0
 
         for device in self.devices:
             for mode in [0, 1, 2]:
@@ -101,6 +102,7 @@ class TestModel(unittest.TestCase):
         params.add_prenet = True
         params.model_name = "VALL-E"
         params.share_embedding = True
+        params.scale_factor = 1.0
 
         for device in self.devices:
             for mode in [0, 1, 2]:
@@ -120,6 +122,7 @@ class TestModel(unittest.TestCase):
                 codes = model.inference(
                     x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
                 )
+                params.scale_factor = 0.5
 
     def test_vallef_prefix4(self):
         params = AttributeDict()
@@ -142,6 +145,7 @@ class TestModel(unittest.TestCase):
         params.norm_first = False
         params.add_prenet = True
         params.share_embedding = False
+        params.scale_factor = 1.0
 
         for device in self.devices:
             for model_name in ["VALL-E", "VALL-F"]:

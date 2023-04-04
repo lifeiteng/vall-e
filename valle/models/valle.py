@@ -67,6 +67,7 @@ class VALLF(nn.Module):
         ] = TransformerDecoderLayer,
         prefix_mode: int = 0,
         share_embedding: bool = True,
+        nar_scale_factor: float = 1.0,
     ):
         """
         Args:
@@ -78,13 +79,15 @@ class VALLF(nn.Module):
             The number of sub-decoder-layers in the decoder (required).
         """
         super().__init__()
+        nar_d_model = int(d_model * nar_scale_factor)
+
         self.ar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)  # W_x
-        self.nar_text_embedding = TokenEmbedding(d_model, NUM_TEXT_TOKENS)
+        self.nar_text_embedding = TokenEmbedding(nar_d_model, NUM_TEXT_TOKENS)
 
         self.ar_audio_embedding = TokenEmbedding(d_model, NUM_AUDIO_TOKENS + 1)
         self.nar_audio_embeddings = nn.ModuleList(
-            [TokenEmbedding(d_model, NUM_AUDIO_TOKENS + 1)]
-            + [TokenEmbedding(d_model, NUM_AUDIO_TOKENS) for i in range(7)]
+            [TokenEmbedding(nar_d_model, NUM_AUDIO_TOKENS + 1)]
+            + [TokenEmbedding(nar_d_model, NUM_AUDIO_TOKENS) for i in range(7)]
         )  # W_a
 
         # PreNet
@@ -119,29 +122,35 @@ class VALLF(nn.Module):
 
             self.nar_text_prenet = nn.Sequential(
                 Transpose(),
-                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
-                nn.BatchNorm1d(d_model),
+                nn.Conv1d(
+                    nar_d_model, nar_d_model, kernel_size=5, padding="same"
+                ),
+                nn.BatchNorm1d(nar_d_model),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
-                nn.BatchNorm1d(d_model),
+                nn.Conv1d(
+                    nar_d_model, nar_d_model, kernel_size=5, padding="same"
+                ),
+                nn.BatchNorm1d(nar_d_model),
                 nn.ReLU(),
                 nn.Dropout(0.5),
-                nn.Conv1d(d_model, d_model, kernel_size=5, padding="same"),
-                nn.BatchNorm1d(d_model),
+                nn.Conv1d(
+                    nar_d_model, nar_d_model, kernel_size=5, padding="same"
+                ),
+                nn.BatchNorm1d(nar_d_model),
                 nn.ReLU(),
                 nn.Dropout(0.5),
                 Transpose(),
-                nn.Linear(d_model, d_model),
+                nn.Linear(nar_d_model, nar_d_model),
             )
             self.nar_audio_prenet = nn.Sequential(
-                nn.Linear(d_model, 256),
+                nn.Linear(nar_d_model, 256),
                 nn.ReLU(),
                 nn.Dropout(0.25),
                 nn.Linear(256, 256),
                 nn.ReLU(),
                 nn.Dropout(0.25),
-                nn.Linear(256, d_model),
+                nn.Linear(256, nar_d_model),
             )
         else:
             self.ar_text_prenet = nn.Identity()
@@ -164,13 +173,13 @@ class VALLF(nn.Module):
         )
 
         self.nar_text_position = SinePositionalEmbedding(
-            d_model,
+            nar_d_model,
             dropout=0.0,
             scale=False,
             alpha=False,
         )
         self.nar_audio_position = SinePositionalEmbedding(
-            d_model,
+            nar_d_model,
             dropout=0.1,
             scale=False,
             alpha=False,
@@ -196,24 +205,27 @@ class VALLF(nn.Module):
 
         self.nar_decoder = decoder_cls(
             decoder_layer_cls(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
+                nar_d_model,
+                int(nhead * nar_scale_factor),
+                dim_feedforward=nar_d_model * 4,
                 dropout=0.1,
                 batch_first=True,
                 norm_first=norm_first,
                 adaptive_layer_norm=True,
             ),
-            num_layers=num_layers,
-            norm=AdaptiveLayerNorm(d_model, norm=nn.LayerNorm(d_model))
+            num_layers=int(num_layers * nar_scale_factor),
+            norm=AdaptiveLayerNorm(nar_d_model, norm=nn.LayerNorm(nar_d_model))
             if norm_first
             else None,
         )
         self.nar_predict_layers = nn.ModuleList(
-            [nn.Linear(d_model, NUM_AUDIO_TOKENS, bias=False) for i in range(7)]
+            [
+                nn.Linear(nar_d_model, NUM_AUDIO_TOKENS, bias=False)
+                for i in range(7)
+            ]
         )
         self.nar_stage_embeddings = nn.ModuleList(
-            [TokenEmbedding(d_model, 1) for i in range(7)]
+            [TokenEmbedding(nar_d_model, 1) for i in range(7)]
         )
         self.prefix_mode = prefix_mode
 
@@ -638,6 +650,7 @@ class VALLE(VALLF):
         add_prenet: bool = False,
         prefix_mode: int = 0,
         share_embedding: bool = True,
+        nar_scale_factor: float = 1.0,
     ):
         """
         Args:
@@ -658,6 +671,7 @@ class VALLE(VALLF):
             decoder_layer_cls=TransformerEncoderLayer,
             prefix_mode=prefix_mode,
             share_embedding=share_embedding,
+            nar_scale_factor=nar_scale_factor,
         )
 
     def forward(

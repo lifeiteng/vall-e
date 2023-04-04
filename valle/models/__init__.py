@@ -34,6 +34,12 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Number of Decoder layers.",
     )
     parser.add_argument(
+        "--scale-factor",
+        type=float,
+        default=1.0,
+        help="Model scale factor which will be assigned different meanings in different models.",
+    )
+    parser.add_argument(
         "--norm-first",
         type=str2bool,
         default=True,
@@ -72,6 +78,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             add_prenet=params.add_prenet,
             prefix_mode=params.prefix_mode,
             share_embedding=params.share_embedding,
+            nar_scale_factor=params.scale_factor,
         )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
@@ -82,6 +89,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             add_prenet=params.add_prenet,
             prefix_mode=params.prefix_mode,
             share_embedding=params.share_embedding,
+            nar_scale_factor=params.scale_factor,
         )
     else:
         assert params.model_name in ["Transformer"]
