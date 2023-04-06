@@ -231,10 +231,24 @@ def get_parser():
     )
 
     parser.add_argument(
+        "--filter-min-duration",
+        type=float,
+        default=0.0,
+        help="Keep only utterances with duration > this.",
+    )
+    parser.add_argument(
         "--filter-max-duration",
-        type=int,
+        type=float,
         default=20.0,
         help="Keep only utterances with duration < this.",
+    )
+
+    parser.add_argument(
+        "--train-stage",
+        type=int,
+        default=0,
+        help="""0: train all modules, For VALL-E, support 1: AR Decoder 2: NAR Decoder(s)
+        """,
     )
 
     add_model_arguments(parser)
@@ -282,9 +296,9 @@ def get_params() -> AttributeDict:
             "best_train_epoch": -1,
             "best_valid_epoch": -1,
             "batch_idx_train": 0,
-            "log_interval": 100,  # 10: debug 100+: train
+            "log_interval": 100,  # 10: debug 100: train
             "reset_interval": 200,
-            "valid_interval": 5000,  # For the 100h subset, use 800
+            "valid_interval": 10000,
             # parameters for TTS
             "env_info": get_env_info(),
         }
@@ -334,6 +348,9 @@ def load_checkpoint_if_available(
 
     assert filename.is_file(), f"{filename} does not exist!"
 
+    if isinstance(model, DDP):
+        raise ValueError("load_checkpoint before DDP")
+
     saved_params = load_checkpoint(
         filename,
         model=model,
@@ -342,19 +359,55 @@ def load_checkpoint_if_available(
         scheduler=scheduler,
     )
 
-    keys = [
-        "best_train_epoch",
-        "best_valid_epoch",
-        "batch_idx_train",
-        "best_train_loss",
-        "best_valid_loss",
-    ]
-    for k in keys:
-        params[k] = saved_params[k]
+    saved_stage = saved_params.get("train_stage", 0)
+    if params.train_stage != saved_stage:
+        # switch training stage
+        if params.train_stage and saved_stage:  # switch between 1 and 2
+            params.start_epoch = 1
+            params.start_batch = 0
+        else:
+            # switch between 0 and 1/2
+            assert params.num_epochs >= params.start_epoch
+            params.batch_idx_train = saved_params["batch_idx_train"]
 
-    if params.start_batch > 0:
-        if "cur_epoch" in saved_params:
-            params["start_epoch"] = saved_params["cur_epoch"]
+        for key in ["optimizer", "grad_scaler", "sampler"]:
+            if key in saved_params:
+                saved_params.pop(key)
+
+        # when base on stage 0, we keep scheduler
+        if saved_stage != 0:
+            for key in ["scheduler"]:
+                if key in saved_params:
+                    saved_params.pop(key)
+
+        best_train_filename = params.exp_dir / "best-train-loss.pt"
+        if best_train_filename.is_file():
+            copyfile(
+                src=best_train_filename,
+                dst=params.exp_dir / f"best-train-loss-stage{saved_stage}.pt",
+            )
+
+        best_valid_filename = params.exp_dir / "best-valid-loss.pt"
+        if best_valid_filename.is_file():
+            copyfile(
+                src=best_valid_filename,
+                dst=params.exp_dir / f"best-valid-loss-stage{saved_stage}.pt",
+            )
+    else:
+
+        keys = [
+            "best_train_epoch",
+            "best_valid_epoch",
+            "batch_idx_train",
+            "best_train_loss",
+            "best_valid_loss",
+        ]
+        for k in keys:
+            params[k] = saved_params[k]
+
+        if params.start_batch > 0:
+            if "cur_epoch" in saved_params:
+                params["start_epoch"] = saved_params["cur_epoch"]
 
     return saved_params
 
@@ -453,6 +506,7 @@ def compute_loss(
             x_lens=text_tokens_lens,
             y=audio_features,
             y_lens=audio_features_lens,
+            train_stage=params.train_stage,
         )
 
     assert loss.requires_grad == is_training
@@ -567,6 +621,26 @@ def train_one_epoch(
         dtype, enabled = torch.bfloat16, True
     elif params.dtype in ["float16", "fp16"]:
         dtype, enabled = torch.float16, True
+
+    def evaluate():
+        logging.info("Computing validation loss")
+        with torch.cuda.amp.autocast(dtype=dtype):
+            valid_info = compute_validation_loss(
+                params=params,
+                model=model,
+                valid_dl=valid_dl,
+                world_size=world_size,
+            )
+        model.train()
+        logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
+        logging.info(
+            f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+        )
+
+        if tb_writer is not None:
+            valid_info.write_summary(
+                tb_writer, "train/valid_", params.batch_idx_train
+            )
 
     batch_idx = 0
     while True:
@@ -719,24 +793,10 @@ def train_one_epoch(
                     )
 
         if params.batch_idx_train % params.valid_interval == 0:
-            logging.info("Computing validation loss")
-            with torch.cuda.amp.autocast(dtype=dtype):
-                valid_info = compute_validation_loss(
-                    params=params,
-                    model=model,
-                    valid_dl=valid_dl,
-                    world_size=world_size,
-                )
-            model.train()
-            logging.info(f"Epoch {params.cur_epoch}, validation: {valid_info}")
-            logging.info(
-                f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-            )
+            evaluate()
 
-            if tb_writer is not None:
-                valid_info.write_summary(
-                    tb_writer, "train/valid_", params.batch_idx_train
-                )
+    if True:  # eval every epoch
+        evaluate()
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
@@ -745,10 +805,12 @@ def train_one_epoch(
         params.best_train_loss = params.train_loss
 
 
-def filter_short_and_long_utterances(cuts: CutSet, max_duration) -> CutSet:
+def filter_short_and_long_utterances(
+    cuts: CutSet, min_duration: float, max_duration: float
+) -> CutSet:
     def remove_short_and_long_utt(c: Cut):
         # Keep only utterances with duration between 0.6 second and 20 seconds
-        if c.duration < 0.6 or c.duration > max_duration:
+        if c.duration < min_duration or c.duration > max_duration:
             # logging.warning(
             #     f"Exclude cut with ID {c.id} from training. Duration: {c.duration}"
             # )
@@ -784,7 +846,12 @@ def run(rank, world_size, args):
     logging.info("Training started")
 
     if args.tensorboard and rank == 0:
-        tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")
+        if params.train_stage:
+            tb_writer = SummaryWriter(
+                log_dir=f"{params.exp_dir}/tensorboard_stage{params.train_stage}"
+            )
+        else:
+            tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")
     else:
         tb_writer = None
 
@@ -811,19 +878,43 @@ def run(rank, world_size, args):
         model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
+    checkpoints = load_checkpoint_if_available(
+        params=params, model=model, model_avg=model_avg
+    )
 
     model.to(device)
     if world_size > 1:
         logging.info("Using DDP")
         model = DDP(model, device_ids=[rank], find_unused_parameters=True)
 
+    if params.train_stage:
+        _model = model.module if isinstance(model, DDP) else model
+        model_parameters = _model.stage_parameters(params.train_stage)
+    else:
+        model_parameters = model.parameters()
+
     if params.optimizer_name == "ScaledAdam":
         parameters_names = []
-        parameters_names.append(
-            [name_param_pair[0] for name_param_pair in model.named_parameters()]
-        )
+        if params.train_stage:  # != 0
+            _model = model.module if isinstance(model, DDP) else model
+            parameters_names.append(
+                [
+                    name_param_pair[0]
+                    for name_param_pair in _model.stage_named_parameters(
+                        params.train_stage
+                    )
+                ]
+            )
+        else:
+            parameters_names.append(
+                [
+                    name_param_pair[0]
+                    for name_param_pair in model.named_parameters()
+                ]
+            )
+
         optimizer = ScaledAdam(
-            model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             clipping_scale=2.0,
@@ -833,13 +924,13 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Eve":
         optimizer = Eve(
-            model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.98),
         )
     elif params.optimizer_name == "AdamW":
         optimizer = torch.optim.AdamW(
-            model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             weight_decay=1e-2,
@@ -847,7 +938,7 @@ def run(rank, world_size, args):
         )
     elif params.optimizer_name == "Adam":
         optimizer = torch.optim.Adam(
-            model.parameters(),
+            model_parameters,
             lr=params.base_lr,
             betas=(0.9, 0.95),
             eps=1e-8,
@@ -857,10 +948,6 @@ def run(rank, world_size, args):
 
     scheduler = get_scheduler(params, optimizer)
     optimizer.zero_grad()
-
-    checkpoints = load_checkpoint_if_available(
-        params=params, model=model, model_avg=model_avg
-    )
 
     if checkpoints and "optimizer" in checkpoints:
         logging.info("Loading optimizer state dict")
@@ -887,10 +974,10 @@ def run(rank, world_size, args):
     valid_cuts = dataset.dev_cuts()
 
     train_cuts = filter_short_and_long_utterances(
-        train_cuts, params.filter_max_duration
+        train_cuts, params.filter_min_duration, params.filter_max_duration
     )
     valid_cuts = filter_short_and_long_utterances(
-        valid_cuts, params.filter_max_duration
+        valid_cuts, params.filter_min_duration, params.filter_max_duration
     )
 
     train_dl = dataset.train_dataloaders(

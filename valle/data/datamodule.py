@@ -39,6 +39,7 @@ from torch.utils.data import DataLoader
 from valle.data.collation import get_text_token_collater
 from valle.data.dataset import SpeechSynthesisDataset
 from valle.data.fbank import get_fbank_extractor
+from valle.data.input_strategies import PromptedPrecomputedFeatures
 
 PrecomputedFeatures = PrecomputedFeatures
 
@@ -49,6 +50,13 @@ class _SeedWorkers:
 
     def __call__(self, worker_id: int):
         fix_random_seed(self.seed + worker_id)
+
+
+def _get_input_strategy(input_strategy, dataset, cuts):
+    if input_strategy == "PromptedPrecomputedFeatures":
+        return PromptedPrecomputedFeatures(dataset, cuts)
+
+    return eval(input_strategy)()
 
 
 class TtsDataModule:
@@ -187,7 +195,14 @@ class TtsDataModule:
             "--input-strategy",
             type=str,
             default="PrecomputedFeatures",
-            help="AudioSamples or PrecomputedFeatures",
+            help="AudioSamples or PrecomputedFeatures or PromptedPrecomputedFeatures",
+        )
+
+        group.add_argument(
+            "--dataset",
+            type=str,
+            default="libritts",
+            help="--input-strategy PromptedPrecomputedFeatures needs dataset name to prepare prompts.",
         )
 
         parser.add_argument(
@@ -281,7 +296,9 @@ class TtsDataModule:
         else:
             train = SpeechSynthesisDataset(
                 get_text_token_collater(self.args.text_tokens),
-                feature_input_strategy=eval(self.args.input_strategy)(),
+                feature_input_strategy=_get_input_strategy(
+                    self.args.input_strategy, self.args.dataset, cuts_train
+                ),
                 cut_transforms=transforms,
                 feature_transforms=input_transforms,
             )
@@ -338,6 +355,9 @@ class TtsDataModule:
         else:
             validate = SpeechSynthesisDataset(
                 get_text_token_collater(self.args.text_tokens),
+                feature_input_strategy=_get_input_strategy(
+                    self.args.input_strategy, self.args.dataset, cuts_valid
+                ),
                 cut_transforms=[],
             )
         valid_sampler = DynamicBucketingSampler(
@@ -362,7 +382,9 @@ class TtsDataModule:
             get_text_token_collater(self.args.text_tokens),
             feature_input_strategy=OnTheFlyFeatures(get_fbank_extractor())
             if self.args.on_the_fly_feats
-            else eval(self.args.input_strategy)(),
+            else _get_input_strategy(
+                self.args.input_strategy, self.args.dataset, cuts
+            ),
             cut_transforms=[],
         )
         sampler = DynamicBucketingSampler(

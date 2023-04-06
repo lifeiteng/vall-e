@@ -1,9 +1,12 @@
+import copy
 import numbers
 from typing import Any, Callable, List, Optional, Tuple, Union
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+
+from .activation import MultiheadAttention
 
 _shape_t = Union[int, List[int], torch.Size]
 
@@ -121,7 +124,7 @@ class TransformerEncoderLayer(nn.Module):
     ) -> None:
         factory_kwargs = {"device": device, "dtype": dtype}
         super(TransformerEncoderLayer, self).__init__()
-        self.self_attn = nn.MultiheadAttention(
+        self.self_attn = MultiheadAttention(
             d_model,
             nhead,
             dropout=dropout,
@@ -235,6 +238,76 @@ class TransformerEncoderLayer(nn.Module):
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout2(x)
+
+
+class TransformerEncoder(nn.Module):
+    r"""TransformerEncoder is a stack of N encoder layers. Users can build the
+    BERT(https://arxiv.org/abs/1810.04805) model with corresponding parameters.
+
+    Args:
+        encoder_layer: an instance of the TransformerEncoderLayer() class (required).
+        num_layers: the number of sub-encoder-layers in the encoder (required).
+        norm: the layer normalization component (optional).
+        enable_nested_tensor: if True, input will automatically convert to nested tensor
+            (and convert back on output). This will improve the overall performance of
+            TransformerEncoder when padding rate is high. Default: ``True`` (enabled).
+
+    Examples::
+        >>> encoder_layer = TransformerEncoderLayer(d_model=512, nhead=8)
+        >>> transformer_encoder = TransformerEncoder(encoder_layer, num_layers=6)
+        >>> src = torch.rand(10, 32, 512)
+        >>> out = transformer_encoder(src)
+    """
+    __constants__ = ["norm"]
+
+    def __init__(self, encoder_layer, num_layers, norm=None):
+        super(TransformerEncoder, self).__init__()
+        self.layers = _get_clones(encoder_layer, num_layers)
+        self.num_layers = num_layers
+        self.norm = norm
+
+    def forward(
+        self,
+        src: Tensor,
+        mask: Optional[Tensor] = None,
+        src_key_padding_mask: Optional[Tensor] = None,
+        return_layer_states: bool = False,
+    ) -> Tensor:
+        r"""Pass the input through the encoder layers in turn.
+
+        Args:
+            src: the sequence to the encoder (required).
+            mask: the mask for the src sequence (optional).
+            src_key_padding_mask: the mask for the src keys per batch (optional).
+            return_layer_states: return layers' state (optional).
+
+        Shape:
+            see the docs in Transformer class.
+        """
+        if return_layer_states:
+            output = src
+            for mod in self.layers:
+                output = mod(
+                    output,
+                    src_mask=mask,
+                    src_key_padding_mask=src_key_padding_mask,
+                )
+
+            if self.norm is not None:
+                output = self.norm(output)
+
+            return output
+
+        output = src
+        for mod in self.layers:
+            output = mod(
+                output, src_mask=mask, src_key_padding_mask=src_key_padding_mask
+            )
+
+        if self.norm is not None:
+            output = self.norm(output)
+
+        return output
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -394,6 +467,10 @@ class TransformerDecoderLayer(nn.Module):
     def _ff_block(self, x: Tensor) -> Tensor:
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout3(x)
+
+
+def _get_clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 
 def _get_activation_fn(activation: str) -> Callable[[Tensor], Tensor]:
