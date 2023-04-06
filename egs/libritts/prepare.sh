@@ -22,29 +22,8 @@ dl_dir=$PWD/download
 # dataset_parts="-p dev-clean -p test-clean"  # debug
 dataset_parts="--dataset-parts all"  # all
 
-max_duration=40
-filter_max_duration=20
-
-use_fp16=false
-dtype="float32"
-
-model_name="valle"
-decoder_dim=1024
-nhead=16
-num_decoder_layers=12
-prefix_mode=0
-
-accumulate_grad_steps=1
-base_lr=0.05
-
-start_epoch=1
-num_epochs=10
-train_options=""
-
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
-
-exp_suffix=""
 
 . shared/parse_options.sh || exit 1
 
@@ -131,22 +110,4 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 
     touch ${audio_feats_dir}/.libritts.train.done
   fi
-fi
-
-if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
-  log "Stage 4: Train ${model_name}"
-
-  if ${use_fp16};then
-    dtype="float16"
-  fi
-
-  python3 bin/trainer.py --manifest-dir ${audio_feats_dir} \
-    --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
-    --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --dtype ${dtype} \
-    --model-name "${model_name}" --norm-first true --add-prenet false \
-    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} \
-    ${train_options} --prefix-mode ${prefix_mode} \
-    --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
-    --num-epochs ${num_epochs} --start-epoch ${start_epoch} --start-batch 0 \
-    --exp-dir exp/${model_name}${exp_suffix}
 fi

@@ -10,7 +10,7 @@ pip install librosa==0.8.1
 cd egs/libritts
 
 # Those stages are very time-consuming
-bash run.sh --stage -1 --stop-stage 3
+bash prepare.sh --stage -1 --stop-stage 3
 ```
 #### data
 
@@ -75,8 +75,13 @@ Speech duration statistics:
 
 ```
 # 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
-bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
-    --num-decoder-layers 12
+# You can try `--max-duration 400` on more powerful GPUs
+python3 bin/trainer.py --max-duration 80 --filter-min-duration 0.5 --filter-max-duration 14 \
+    --model-name "VALL-E" --norm-first true --add-prenet false --dtype "float32" \
+    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+    --base-lr 0.05 --warmup-steps 200 --average-period 0 --accumulate-grad-steps 1 \
+    --num-epochs 40 --start-epoch 1 --start-batch 0 \
+    --exp-dir exp/valle
 ```
 ![train](./demos/train.png)
 
@@ -84,34 +89,28 @@ bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 
 **Paper Chapter 5.1** "The average length of the waveform in LibriLight is 60 seconds. During
 training, we randomly crop the waveform to a random length between 10 seconds and 20 seconds. For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds from the same utterance."
 * **0**: no acoustic prompt tokens
-* **1**: random prefix of current batched utterances
+* **1**: random prefix of current batched utterances **(This is recommended)**
 * **2**: random segment of current batched utterances
 * **4**: same as the paper (As they randomly crop the long waveform to multiple utterances, so the same utterance means pre or post utterance in the same long waveform.)
 
 ```
 # If train AR & NAR Decoders with prefix_mode 4
-bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
-            --num-epochs 10 --start-epoch 1 --prefix_mode 4 --exp_suffix "_mode4" \
-            --train-options "--train-stage 0 --dataset libritts --input-strategy PromptedPrecomputedFeatures"
+python3 bin/trainer.py --prefix_mode 4 --dataset libritts --input-strategy PromptedPrecomputedFeatures ...
 ```
 
 #### Train AR Decoder and NAR Decoder individually
-* try larger `--max-duration 80`
+* you can double `--max-duration` and try different `--prefix-mode 0|1|2|4`
 ```
 # Train AR Decoder
-bash run.sh --stage 4 --stop-stage 4 --max-duration 80 --filter-max-duration 14 \
-            --num-epochs 10 --start-epoch 1 --prefix_mode 0 \
-            --train-options "--train-stage 1"
+exp_dir=exp/valle_stage1
+python3 bin/trainer.py --train-stage 1 ... --num-epochs 20 --exp-dir ${exp_dir}
 
-# Train NAR Decoder with  --prefix_mode 0/1/2
-bash run.sh --stage 4 --stop-stage 4 --max-duration 60 --filter-max-duration 14 \
-            --num-epochs 10 --start-epoch 10 --prefix_mode 0 \
-            --train-options "--train-stage 2"
+exp_dir=exp/valle_stage1
+mkdir -p ${exp_dir}
+cp exp/valle_stage1/best-valid-loss.pt ${exp_dir}/epoch-2.pt  # --start-epoch 3
 
-# If train NAR Decoder with prefix_mode 4
-bash run.sh --stage 4 --stop-stage 4 --max-duration 60 --filter-max-duration 14 \
-            --num-epochs 10 --start-epoch 10 --prefix_mode 4 --exp_suffix "_mode4" \
-            --train-options "--train-stage 2 --dataset libritts --input-strategy PromptedPrecomputedFeatures"
+# Train NAR Decoder
+python3 bin/trainer.py --train-stage 2 ... --num-epochs 40 --start-epoch 3 --exp-dir ${exp_dir}
 ```
 
 ## Inference
@@ -119,9 +118,10 @@ bash run.sh --stage 4 --stop-stage 4 --max-duration 60 --filter-max-duration 14 
 ```
 python3 bin/infer.py --output-dir infer/demos \
     --model-name valle --norm-first true --add-prenet false \
-    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12  \
+    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
     --text-prompts "KNOT one point one five miles per hour." \
     --audio-prompts ./prompts/8463_294825_000043_000000.wav \
     --text "To get up and running quickly just follow the steps below." \
-    --checkpoint=expX4/valle/checkpoint-400000.pt
+    --checkpoint=exp/valle/best-valid-loss.pt
+
 ```
