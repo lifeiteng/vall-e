@@ -17,15 +17,6 @@ stop_stage=3
 
 dl_dir=$PWD/download
 
-model_name="Transformer"
-max_duration=40
-use_fp16=false
-num_decoder_layers=6
-
-accumulate_grad_steps=1
-base_lr=2.0
-
-
 audio_extractor="Fbank"  # or Fbank
 audio_feats_dir=data/fbank
 
