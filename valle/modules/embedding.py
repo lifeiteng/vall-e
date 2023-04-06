@@ -58,7 +58,7 @@ class SinePositionalEmbedding(nn.Module):
         super().__init__()
         self.dim_model = dim_model
         self.x_scale = math.sqrt(dim_model) if scale else 1.0
-        self.alpha = nn.Parameter(torch.ones(1)) if alpha else 1.0
+        self.alpha = nn.Parameter(torch.ones(1), requires_grad=alpha)
         self.dropout = torch.nn.Dropout(p=dropout)
 
         self.reverse = False

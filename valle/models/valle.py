@@ -231,7 +231,9 @@ class VALLF(nn.Module):
 
         if share_embedding:
             # We share the parameters of the output projection layer with the parameters of the acoustic embedding Wa
-            self.ar_predict_layer.weight = self.ar_audio_embedding.weight
+            # NOTE(Feiteng): In the experiment, this undermines accuracy
+            # self.ar_predict_layer.weight = self.ar_audio_embedding.weight
+
             # We also share the parameters of the acoustic embedding layer and the output prediction layer,
             # which means the weights of the j-th prediction layer are the same as the (j + 1)-th acoustic embedding layer.
             for j in range(0, 6):
@@ -573,9 +575,13 @@ class VALLF(nn.Module):
             )
 
             if (
-                samples[0, 0] == NUM_AUDIO_TOKENS
+                torch.argmax(logits, dim=-1)[0] == NUM_AUDIO_TOKENS
+                or samples[0, 0] == NUM_AUDIO_TOKENS
                 or (y.shape[1] - prefix_len) > x_lens.max() * 16
             ):
+                if prompts.shape[1] == y.shape[1]:
+                    y = torch.concat([y, samples], dim=1)
+
                 print(f"VALL-F EOS [{prefix_len} -> {y.shape[1]}]")
                 break
 
@@ -940,7 +946,8 @@ class VALLE(VALLF):
             )
 
             if (
-                samples[0, 0] == NUM_AUDIO_TOKENS
+                torch.argmax(logits, dim=-1)[0] == NUM_AUDIO_TOKENS
+                or samples[0, 0] == NUM_AUDIO_TOKENS
                 or (y.shape[1] - prompts.shape[1]) > x_lens.max() * 16
             ):
                 if prompts.shape[1] == y.shape[1]:
