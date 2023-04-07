@@ -74,7 +74,6 @@ Speech duration statistics:
   * Make sure then version of h5py in `bin/tokenizer.py` and `bin/trainer.py` are same: `pip install h5py==3.8.0`
 
 ```
-# 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
 # You can try `--max-duration 400` on more powerful GPUs
 python3 bin/trainer.py --max-duration 80 --filter-min-duration 0.5 --filter-max-duration 14 \
     --model-name "VALL-E" --norm-first true --add-prenet false --dtype "float32" \
@@ -84,6 +83,32 @@ python3 bin/trainer.py --max-duration 80 --filter-min-duration 0.5 --filter-max-
     --exp-dir exp/valle
 ```
 ![train](./demos/train.png)
+
+#### [demo](https://lifeiteng.github.io/valle/index.html)
+ * [LibriTTS demo](https://lifeiteng.github.io/valle/index.html) Trained on one GPU with 24G memory
+```
+exp_dir=exp_0331/valle_Prefix1_Dim1024H16L12
+python3 bin/trainer.py --max-duration 80 --filter-min-duration 0.5 --filter-max-duration 14 --train-stage 1 \
+      --num-buckets 6 --dtype "bf16" --save-every-n 10000 \
+      --model-name valle --share-embedding true --norm-first true --add-prenet false \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+      --base-lr 0.05 --warmup-steps 200 --average-period 0 \
+      --num-epochs 20 --start-epoch 1 --start-batch 0 --accumulate-grad-steps 4 \
+      --exp-dir ${exp_dir}
+
+cp ${exp_dir}/best-valid-loss.pt ${exp_dir}/epoch-2.pt
+
+python3 bin/trainer.py --max-duration 40 --filter-min-duration 0.5 --filter-max-duration 14 --train-stage 2 \
+      --num-buckets 6 --dtype "float32" --save-every-n 10000 \
+      --model-name valle --share-embedding true --norm-first true --add-prenet false \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+      --base-lr 0.05 --warmup-steps 200 --average-period 0 \
+      --num-epochs 20 --start-epoch 3 --start-batch 0 --accumulate-grad-steps 4 \
+      --exp-dir ${exp_dir}
+
+# Inference
+https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/run.sh#L68
+```
 
 #### Prefix Mode 0 1 2 4 for NAR Decoder
 **Paper Chapter 5.1** "The average length of the waveform in LibriLight is 60 seconds. During
