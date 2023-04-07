@@ -61,16 +61,11 @@ pip uninstall lhotse
 pip uninstall lhotse
 pip install git+https://github.com/lhotse-speech/lhotse
 
-# k2 icefall
-# pip install k2
-git clone https://github.com/k2-fsa/k2.git
-cd k2
-export PATH=/usr/local/cuda/bin:${PATH}
-export K2_MAKE_ARGS="-j12"
-export K2_CMAKE_ARGS="-DK2_WITH_CUDA=OFF"
-python setup.py install
-cd -
+# k2
+# find the right version in https://huggingface.co/csukuangfj/k2
+pip install https://huggingface.co/csukuangfj/k2/resolve/main/cuda/k2-1.23.4.dev20230224+cuda11.6.torch1.13.1-cp310-cp310-linux_x86_64.whl
 
+# icefall
 git clone https://github.com/k2-fsa/icefall
 cd icefall
 pip install -r requirements.txt
