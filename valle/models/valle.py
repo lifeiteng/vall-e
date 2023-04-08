@@ -625,7 +625,7 @@ class VALLF(nn.Module):
                 x,
                 tgt_mask=None,
                 memory_mask=None,
-                memory_key_padding_mask=x_mask,
+                memory_key_padding_mask=None,
             )
             logits = predict_layer(y_dec[:, prefix_len:])
             samples = torch.argmax(logits, dim=-1)
