@@ -96,6 +96,19 @@ def get_args():
         default="jsonl.gz",
         help="suffix of the manifest file",
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=20,
+        help="Number of dataloading workers used for reading the audio.",
+    )
+    parser.add_argument(
+        "--batch-duration",
+        type=float,
+        default=300.0,
+        help="The maximum number of audio seconds in a batch."
+        "Determines batch size dynamically.",
+    )
 
     return parser.parse_args()
 
@@ -168,12 +181,13 @@ def main():
                 cut_set = cut_set.resample(24000)
 
             with torch.no_grad():
-                cut_set = cut_set.compute_and_store_features(
+                cut_set = cut_set.compute_and_store_features_batch(
                     extractor=extractor,
                     storage_path=storage_path,
-                    num_jobs=num_jobs if ex is None else 64,
-                    executor=ex,
-                    storage_type=NumpyHdf5Writer,
+                    num_workers=args.num_workers,
+                    batch_duration=args.batch_duration,
+                    overwrite=True,
+                    storage_type=NumpyHdf5Writer
                 )
 
             # Tokenize Text
