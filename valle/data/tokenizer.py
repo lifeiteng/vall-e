@@ -30,6 +30,46 @@ from phonemizer.punctuation import Punctuation
 from phonemizer.separator import Separator
 
 
+class PypinyinBackend:
+    """PypinyinBackend for Chinese. Most codes is referenced from espnet.
+    There are two types pypinyin_g2p or pypinyin_g2p_phone, one is
+    just like "ni1 hao3", the other is like "n i1 h ao3".
+    """
+
+    def __init__(
+        self,
+        g2p_type="pypinyin_g2p",
+    ) -> None:
+        self.g2p_type = g2p_type
+
+    def phonemize(self, text, separator="", strip="", njobs=1):
+        # separator strip njobs are not used
+        if self.g2p_type == "pypinyin_g2p":
+            from pypinyin import Style, pinyin
+
+            phones = [phone[0] for phone in pinyin(text, style=Style.TONE3)]
+            return phones
+        elif self.g2p_type == "pypinyin_g2p_phone":
+            from pypinyin import Style, pinyin
+            from pypinyin.style._utils import get_finals, get_initials
+
+            phones = [
+                p
+                for phone in pinyin(text, style=Style.TONE3)
+                for p in [
+                    get_initials(phone[0], strict=True),
+                    get_finals(phone[0][:-1], strict=True) + phone[0][-1]
+                    if phone[0][-1].isdigit()
+                    else get_finals(phone[0], strict=True)
+                    if phone[0][-1].isalnum()
+                    else phone[0],
+                ]
+                # Remove the case of individual tones as a phoneme
+                if len(p) != 0 and not p.isdigit()
+            ]
+            return phones
+
+
 class TextTokenizer:
     """Phonemize Text."""
 
@@ -55,6 +95,11 @@ class TextTokenizer:
                 language_switch=language_switch,
                 words_mismatch=words_mismatch,
             )
+        elif backend.startswith("pypinyin"):
+            if backend == "pypinyin_g2p":
+                phonemizer = PypinyinBackend(g2p_type="pypinyin_g2p")
+            else:
+                phonemizer = PypinyinBackend(g2p_type="pypinyin_g2p_phone")
         else:
             raise NotImplementedError(f"{backend}")
 
@@ -69,6 +114,16 @@ class TextTokenizer:
 
 
 def tokenize_text(tokenizer: TextTokenizer, text: str):
+    if isinstance(tokenizer.backend, PypinyinBackend):  # for PypinyinBackend
+        tokenlist = tokenizer(text)
+        new_tokenlist = []
+        for tok in tokenlist:  # need to replace  " " with "_"
+            tmp_tok = tok.strip()
+            if tmp_tok == "":
+                new_tokenlist.append("_")
+            else:
+                new_tokenlist.append(tmp_tok)
+        return new_tokenlist
     phonemes = tokenizer([text.strip()])
     return phonemes[0].replace(" ", "_")  # k2symbols
 
