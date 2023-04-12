@@ -21,27 +21,8 @@ dl_dir=$PWD/download
 
 dataset_parts="-p train -p dev -p test"  # debug
 
-max_duration=32
-filter_max_duration=20
-
-use_fp16=false
-dtype="float32"
-
-model_name="valle"
-decoder_dim=1024
-nhead=16
-num_decoder_layers=12
-prefix_mode=0
-world_size=1
-accumulate_grad_steps=1
-base_lr=0.05
-
-num_epochs=10
-
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
-
-exp_suffix=""
 
 . shared/parse_options.sh || exit 1
 
@@ -66,7 +47,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   #   ln -sfv /path/to/aishell $dl_dir/aishell
   #
   if [ ! -d $dl_dir/aishell/dev ]; then
-    lhotse download aishell   $dl_dir
+    lhotse download aishell $dl_dir
   fi
 fi
 
@@ -76,7 +57,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
   # to $dl_dir/aishell
   mkdir -p data/manifests
   if [ ! -e data/manifests/.aishell.done ]; then
-    lhotse prepare aishell  $dl_dir/aishell data/manifests
+    lhotse prepare aishell $dl_dir/aishell data/manifests
     touch data/manifests/.aishell.done
   fi
 fi
@@ -87,7 +68,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   log "if you use aishell pypinyin_g2p Tokenizer you should set NUM_TEXT_TOKENS = 1280 in valle.py !!!!"
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.aishell.tokenize.done ]; then
-    python bin/tokenizer.py  --dataset-parts "${dataset_parts}" \
+    python bin/tokenizer.py --dataset-parts "${dataset_parts}" \
         --audio-extractor ${audio_extractor} \
         --prefix "aishell" \
         --src-dir "data/manifests" \
@@ -117,35 +98,4 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 
     touch ${audio_feats_dir}/.aishell.train.done
   fi
-fi
-
-if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
-  log "Stage 4: Train ${model_name}"
-
-  if ${use_fp16};then
-    dtype="float16"
-  fi
-
-  python bin/trainer.py --manifest-dir ${audio_feats_dir} \
-    --text-tokens ${audio_feats_dir}/unique_text_tokens.k2symbols \
-    --max-duration ${max_duration} --filter-max-duration ${filter_max_duration} --dtype ${dtype} \
-    --model-name "${model_name}" --norm-first true --add-prenet false \
-    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} --prefix-mode ${prefix_mode} \
-    --accumulate-grad-steps ${accumulate_grad_steps} --base-lr ${base_lr} \
-    --num-epochs ${num_epochs} --start-epoch 1 --start-batch 0 --world-size ${world_size}\
-    --exp-dir exp/${model_name}${exp_suffix}
-fi
-
-
-if [ $stage -le 5 ] && [ $stop_stage -ge 5 ]; then
-  log "Stage 5: infer ${model_name}"
-
-  python bin/infer.py --output-dir demos \
-    --top-k -1 --temperature 1.0 \
-    --model-name "${model_name}" --norm-first true --add-prenet false \
-    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} --prefix-mode ${prefix_mode} \
-    --text-prompts "甚至出现交易几乎停滞的情况" \
-    --audio-prompts ./prompts/ch_24k.wav \
-    --text "大家好非常高兴能认识大家" \
-    --checkpoint exp/${model_name}${exp_suffix}/best-train-loss.pt
 fi

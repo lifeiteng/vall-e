@@ -1,9 +1,8 @@
 # aishell1
-if you use aishell pypinyin_g2p Tokenizer you should set NUM_TEXT_TOKENS = 1280 in valle.py
+If you use aishell `pypinyin_g2p Tokenizer`, you should set `NUM_TEXT_TOKENS = 1280` in valle.py
 
 ## Install deps
 ```
-pip install librosa==0.8.1
 pip install pypinyin
 ```
 
@@ -12,34 +11,8 @@ pip install pypinyin
 cd egs/aishell1
 
 # Those stages are very time-consuming
-bash run.sh --stage -1 --stop-stage 3
-```
+bash prepare.sh --stage -1 --stop-stage 3
 
-
-## Training
-* Fix [segmentation fault (core dumped)](https://github.com/lifeiteng/vall-e#troubleshooting)
-* Fix `h5py Unable to open object (object ...`
-  * Make sure then version of h5py in `bin/tokenizer.py` and `bin/trainer.py` are same: `pip install h5py==3.8.0`
-
-```
-# 12G GPU --max-duration 24 --filter-max-duration 14 --num-decoder-layers 6
-bash run.sh --stage 4 --stop-stage 4 --max-duration 40 --filter-max-duration 14 \
-    --num-decoder-layers 12
-```
-
-
-## Inference
-
-```
-python bin/infer.py --output-dir demos \
-    --top-k -1 --temperature 1.0 \
-    --model-name "${model_name}" --norm-first true --add-prenet false \
-    --decoder-dim ${decoder_dim} --nhead ${nhead} --num-decoder-layers ${num_decoder_layers} --prefix-mode ${prefix_mode} \
-    --text-prompts "甚至出现交易几乎停滞的情况" \
-    --audio-prompts ./prompts/ch_24k.wav \
-    --text "大家好非常高兴能认识大家" \
-    --checkpoint exp/${model_name}${exp_suffix}/best-train-loss.pt
-```
 ##  train
 Cut statistics:
 ╒═══════════════════════════╤═══════════╕
@@ -170,3 +143,21 @@ Speech duration statistics:
 ├──────────────────────────────┼──────────┼──────────────────────┤
 │ Total silence duration       │ 00:00:00 │ 0.00% of recording   │
 ╘══════════════════════════════╧══════════╧══════════════════════╛
+```
+
+
+## Training
+refer to [LibriTTS Training](../libritts/README.md#Training)
+
+## Inference
+* make sure `--decoder-dim 1024 ...` are same with `Training`
+```
+python bin/infer.py --output-dir demos \
+    --top-k -1 --temperature 1.0 \
+    --model-name "VALL-E" --norm-first true --add-prenet false \
+    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+    --text-prompts "甚至出现交易几乎停滞的情况" \
+    --audio-prompts ./prompts/ch_24k.wav \
+    --text "大家好非常高兴能认识大家" \
+    --checkpoint exp/valle/best-train-loss.pt
+```
