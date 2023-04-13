@@ -175,7 +175,7 @@ class TextTokenizer:
         return [self.to_list(p) for p in phonemized]
 
 
-def tokenize_text(tokenizer: TextTokenizer, text: str):
+def tokenize_text(tokenizer: TextTokenizer, text: str) -> List[str]:
     phonemes = tokenizer([text.strip()])
     return phonemes[0]  # k2symbols
 

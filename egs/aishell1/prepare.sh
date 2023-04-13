@@ -68,7 +68,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   log "Stage 2: Tokenize/Fbank aishell"
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.aishell.tokenize.done ]; then
-    python bin/tokenizer.py --dataset-parts "${dataset_parts}" \
+    python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
         --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
         --prefix "aishell" \

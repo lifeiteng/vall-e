@@ -70,7 +70,7 @@ def get_args():
         "--text-extractor",
         type=str,
         default="espeak",
-        help="espeak or pinyin or initials_finals",
+        help="espeak or pypinyin or pypinyin_initials_finals",
     )
     parser.add_argument(
         "--audio-extractor",
@@ -193,7 +193,7 @@ def main():
                         text_tokenizer, text=c.supervisions[0].text
                     )
                 c.supervisions[0].custom["tokens"] = {"text": phonemes}
-                unique_symbols.update(list(phonemes))
+                unique_symbols.update(phonemes)
 
             cuts_filename = f"{args.prefix}_cuts_{partition}.{args.suffix}"
             cut_set.to_file(f"{args.output_dir}/{cuts_filename}")
