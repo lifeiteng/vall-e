@@ -71,6 +71,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
         --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
+        --batch-duration 400 \
         --prefix "aishell" \
         --src-dir "data/manifests" \
         --output-dir "${audio_feats_dir}"

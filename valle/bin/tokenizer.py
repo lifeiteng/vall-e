@@ -97,15 +97,9 @@ def get_args():
         help="suffix of the manifest file",
     )
     parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=20,
-        help="Number of dataloading workers used for reading the audio.",
-    )
-    parser.add_argument(
         "--batch-duration",
         type=float,
-        default=300.0,
+        default=400.0,
         help="The maximum number of audio seconds in a batch."
         "Determines batch size dynamically.",
     )
@@ -139,14 +133,6 @@ def main():
 
     text_tokenizer = TextTokenizer(backend=args.text_extractor)
 
-    # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
-    # by remove encodec weight_norm
-    num_jobs = min(8, os.cpu_count())
-
-    # TODO: use multi-gpus witch torch.device("cuda", rank)
-    if torch.cuda.is_available():
-        num_jobs = 1
-
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     unique_symbols = set()
@@ -157,6 +143,7 @@ def main():
         assert args.audio_extractor == "Fbank"
         extractor = get_fbank_extractor()
 
+    num_jobs = min(32, os.cpu_count())
     with get_executor() as ex:
         for partition, m in manifests.items():
             logging.info(
@@ -181,14 +168,27 @@ def main():
                 cut_set = cut_set.resample(24000)
 
             with torch.no_grad():
-                cut_set = cut_set.compute_and_store_features_batch(
-                    extractor=extractor,
-                    storage_path=storage_path,
-                    num_workers=args.num_workers,
-                    batch_duration=args.batch_duration,
-                    overwrite=True,
-                    storage_type=NumpyHdf5Writer
-                )
+                if (
+                    torch.cuda.is_available()
+                    and args.audio_extractor == "Encodec"
+                ):
+                    cut_set = cut_set.compute_and_store_features_batch(
+                        extractor=extractor,
+                        storage_path=storage_path,
+                        num_workers=num_jobs,
+                        batch_duration=args.batch_duration,
+                        collate=False,
+                        overwrite=True,
+                        storage_type=NumpyHdf5Writer,
+                    )
+                else:
+                    cut_set = cut_set.compute_and_store_features(
+                        extractor=extractor,
+                        storage_path=storage_path,
+                        num_jobs=num_jobs if ex is None else 64,
+                        executor=ex,
+                        storage_type=NumpyHdf5Writer,
+                    )
 
             # Tokenize Text
             for c in tqdm(cut_set):
