@@ -41,29 +41,33 @@ class TestTextTokenizer(unittest.TestCase):
         text_tokenizer = TextTokenizer(backend="pypinyin")
 
         for (_input, _target) in [
-            ("你好这是测试", ["ni3", "hao3", "zhe4", "shi4", "ce4", "shi4"]),
-            ("\"你好\", 这是测试.", ["\"ni3", "hao3\",", "zhe4", "shi4", "ce4", "shi4."]),
-            ("此项 工作 还能 怎么 改进", ['ci3', 'xiang4', 'gong1', 'zuo4', 'hai2', 'neng2', 'zen3',
-                                       'me5', 'gai3', 'jin4']),  # AISHELL
+            ("你好这是测试",
+              ["ni3", '-', "hao3", '-', "zhe4", '-', "shi4", '-', "ce4", '-', "shi4"]),
+            ("\"你好\", 这是测试.",
+              ["\"", "ni3", '-', "hao3", "\"", ",", '_', "zhe4", '-', "shi4", '-', "ce4", '-', "shi4", "."]),
+            ("此项 工作 还能 怎么 改进",
+              ['ci3', '-', 'xiang4', '_', 'gong1', '-', 'zuo4', '_',
+               'hai2', '-', 'neng2', '_', 'zen3', '-', 'me5', '_', 'gai3', '-', 'jin4']),  # AISHELL
         ]:
             phonemized = text_tokenizer(_input)
-            self.assertEqual("".join(phonemized[0]), "_".join(_target))
+            self.assertEqual(phonemized[0], _target)
 
     def test_pypinyin_initials_finals(self):
         text_tokenizer = TextTokenizer(backend="pypinyin_initials_finals")
 
         for (_input, _target) in [
             ("你好这是测试",
-              ["n", "i3", "_", "h", "ao3", "_", "zh", "e4", "_", "sh", "i4", "_", "c", "e4", "_", "sh", "i4"],
+              ["n", "i3", "-", "h", "ao3", "-", "zh", "e4", "-", "sh", "i4", "-", "c", "e4", "-", "sh", "i4"],
             ),
             ("\"你好.这是测试.",
-              ["\"", "n", "i3", "_", "h", "ao3", ".", "_", "zh", "e4", "_", "sh", "i4", "_", "c", "e4", "_", "sh", "i4", "."],
+              ["\"", "n", "i3", "-", "h", "ao3", ".", "zh", "e4", "-", "sh", "i4", "-", "c", "e4", "-", "sh", "i4", "."],
             ),
             ("\"你好. 这是测试.",
-              ["\"", "n", "i3", "_", "h", "ao3", ".", "_", "zh", "e4", "_", "sh", "i4", "_", "c", "e4", "_", "sh", "i4", "."],
+              ["\"", "n", "i3", "-", "h", "ao3", ".", "_", "zh", "e4", "-", "sh", "i4", "-", "c", "e4", "-", "sh", "i4", "."],
             ),
-            ("此项 工作 还能 怎么 改进", ['c', 'i3', '_', 'x', 'iang4', '_', 'g', 'ong1', '_', 'z', 'uo4', '_', 'h', 'ai2', '_',
-                                       'n', 'eng2', '_', 'z', 'en3', '_', 'm', 'e5', '_', 'g', 'ai3', '_', 'j', 'in4']),  # AISHELL
+            ("此项 工作 还能 怎么 改进", ['c', 'i3', '-', 'x', 'iang4', '_', 'g', 'ong1', '-', 'z', 'uo4', '_',
+                                'h', 'ai2', '-', 'n', 'eng2', '_', 'z', 'en3', '-', 'm', 'e5', '_',
+                                'g', 'ai3', '-', 'j', 'in4']),  # AISHELL
         ]:
             phonemized = text_tokenizer(_input)
             self.assertListEqual(phonemized[0], _target)

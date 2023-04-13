@@ -68,14 +68,12 @@ class PypinyinBackend:
                 ):
                     if all([c in self.punctuation_marks for c in py[0]]):
                         if len(phones):
-                            assert phones[-1] == separator.word
+                            assert phones[-1] == separator.syllable
                             phones.pop(-1)
 
                         phones.extend(list(py[0]))
-                        if n and phones[-1] != separator.word:
-                            phones.append(separator.word)
                     else:
-                        phones.extend([py[0], separator.word])
+                        phones.extend([py[0], separator.syllable])
             elif self.backend == "pypinyin_initials_finals":
                 for n, py in enumerate(
                     pinyin(
@@ -84,11 +82,9 @@ class PypinyinBackend:
                 ):
                     if all([c in self.punctuation_marks for c in py[0]]):
                         if len(phones):
-                            assert phones[-1] == separator.word
+                            assert phones[-1] == separator.syllable
                             phones.pop(-1)
                         phones.extend(list(py[0]))
-                        if n and phones[-1] != separator.word:
-                            phones.append(separator.word)
                     else:
                         if py[0][-1].isalnum():
                             initial = get_initials(py[0], strict=False)
@@ -104,14 +100,16 @@ class PypinyinBackend:
                                     initial,
                                     separator.phone,
                                     final,
-                                    separator.word,
+                                    separator.syllable,
                                 ]
                             )
                         else:
                             assert ValueError
             else:
                 raise NotImplementedError
-            phonemized.append("".join(phones[:-1]))
+            phonemized.append(
+                "".join(phones).rstrip(f"{separator.word}{separator.syllable}")
+            )
         return phonemized
 
 
@@ -122,7 +120,7 @@ class TextTokenizer:
         self,
         language="en-us",
         backend="espeak",
-        separator=Separator(word="_", syllable="*", phone="|"),
+        separator=Separator(word="_", syllable="-", phone="|"),
         preserve_punctuation=True,
         punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
         with_stress: bool = False,
