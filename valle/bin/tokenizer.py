@@ -26,11 +26,11 @@ import os
 from pathlib import Path
 
 import torch
+from icefall.utils import get_executor
 from lhotse import CutSet, NumpyHdf5Writer
 from lhotse.recipes.utils import read_manifests_if_cached
 from tqdm.auto import tqdm
 
-from icefall.utils import get_executor
 from valle.data import (
     AudioTokenConfig,
     AudioTokenExtractor,
@@ -65,6 +65,12 @@ def get_args():
         type=Path,
         default=Path("data/tokenized"),
         help="Path to the tokenized files",
+    )
+    parser.add_argument(
+        "--text-extractor",
+        type=str,
+        default="espeak",
+        help="espeak or pinyin or initials_finals",
     )
     parser.add_argument(
         "--audio-extractor",
@@ -118,10 +124,7 @@ def main():
         suffix=args.suffix,
     )
 
-    if args.prefix == "aishell":
-        text_tokenizer = TextTokenizer(backend="pypinyin_g2p")
-    else:
-        text_tokenizer = TextTokenizer()
+    text_tokenizer = TextTokenizer(backend=args.text_extractor)
 
     # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
     # by remove encodec weight_norm

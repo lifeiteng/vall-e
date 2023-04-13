@@ -21,6 +21,7 @@ dl_dir=$PWD/download
 
 dataset_parts="-p train -p dev -p test"  # debug
 
+text_extractor="pypinyin_initials_finals"
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
 
@@ -65,10 +66,10 @@ fi
 
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   log "Stage 2: Tokenize/Fbank aishell"
-  log "if you use aishell pypinyin_g2p Tokenizer you should set NUM_TEXT_TOKENS = 1280 in valle.py !!!!"
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.aishell.tokenize.done ]; then
     python bin/tokenizer.py --dataset-parts "${dataset_parts}" \
+        --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
         --prefix "aishell" \
         --src-dir "data/manifests" \

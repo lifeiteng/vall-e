@@ -1,6 +1,4 @@
 # aishell1
-If you use aishell `pypinyin_g2p Tokenizer`, you should set `NUM_TEXT_TOKENS = 1280` in valle.py
-
 ## Install deps
 ```
 pip install pypinyin

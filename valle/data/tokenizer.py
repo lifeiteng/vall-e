@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Pattern, Union
 
@@ -29,45 +30,89 @@ from phonemizer.backend.espeak.words_mismatch import WordMismatch
 from phonemizer.punctuation import Punctuation
 from phonemizer.separator import Separator
 
+try:
+    from pypinyin import Style, pinyin
+    from pypinyin.style._utils import get_finals, get_initials
+except Exception:
+    pass
+
 
 class PypinyinBackend:
     """PypinyinBackend for Chinese. Most codes is referenced from espnet.
-    There are two types pypinyin_g2p or pypinyin_g2p_phone, one is
+    There are two types pinyin or initials_finals, one is
     just like "ni1 hao3", the other is like "n i1 h ao3".
     """
 
     def __init__(
         self,
-        g2p_type="pypinyin_g2p",
+        backend="initials_finals",
+        punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
     ) -> None:
-        self.g2p_type = g2p_type
+        self.backend = backend
+        self.punctuation_marks = punctuation_marks
 
-    def phonemize(self, text, separator="", strip="", njobs=1):
-        # separator strip njobs are not used
-        if self.g2p_type == "pypinyin_g2p":
-            from pypinyin import Style, pinyin
+    def phonemize(
+        self, text: List[str], separator: Separator, strip=True, njobs=1
+    ) -> List[str]:
+        assert isinstance(text, List)
+        phonemized = []
+        for _text in text:
+            _text = re.sub(" +", " ", _text.strip())
+            _text = _text.replace(" ", separator.word)
+            phones = []
+            if self.backend == "pypinyin":
+                for n, py in enumerate(
+                    pinyin(
+                        _text, style=Style.TONE3, neutral_tone_with_five=True
+                    )
+                ):
+                    if all([c in self.punctuation_marks for c in py[0]]):
+                        if len(phones):
+                            assert phones[-1] == separator.word
+                            phones.pop(-1)
 
-            phones = [phone[0] for phone in pinyin(text, style=Style.TONE3)]
-            return phones
-        elif self.g2p_type == "pypinyin_g2p_phone":
-            from pypinyin import Style, pinyin
-            from pypinyin.style._utils import get_finals, get_initials
-
-            phones = [
-                p
-                for phone in pinyin(text, style=Style.TONE3)
-                for p in [
-                    get_initials(phone[0], strict=True),
-                    get_finals(phone[0][:-1], strict=True) + phone[0][-1]
-                    if phone[0][-1].isdigit()
-                    else get_finals(phone[0], strict=True)
-                    if phone[0][-1].isalnum()
-                    else phone[0],
-                ]
-                # Remove the case of individual tones as a phoneme
-                if len(p) != 0 and not p.isdigit()
-            ]
-            return phones
+                        phones.extend(list(py[0]))
+                        if n and phones[-1] != separator.word:
+                            phones.append(separator.word)
+                    else:
+                        phones.extend([py[0], separator.word])
+            elif self.backend == "pypinyin_initials_finals":
+                for n, py in enumerate(
+                    pinyin(
+                        _text, style=Style.TONE3, neutral_tone_with_five=True
+                    )
+                ):
+                    if all([c in self.punctuation_marks for c in py[0]]):
+                        if len(phones):
+                            assert phones[-1] == separator.word
+                            phones.pop(-1)
+                        phones.extend(list(py[0]))
+                        if n and phones[-1] != separator.word:
+                            phones.append(separator.word)
+                    else:
+                        if py[0][-1].isalnum():
+                            initial = get_initials(py[0], strict=False)
+                            if py[0][-1].isdigit():
+                                final = (
+                                    get_finals(py[0][:-1], strict=False)
+                                    + py[0][-1]
+                                )
+                            else:
+                                final = get_finals(py[0], strict=False)
+                            phones.extend(
+                                [
+                                    initial,
+                                    separator.phone,
+                                    final,
+                                    separator.word,
+                                ]
+                            )
+                        else:
+                            assert ValueError
+            else:
+                raise NotImplementedError
+            phonemized.append("".join(phones[:-1]))
+        return phonemized
 
 
 class TextTokenizer:
@@ -77,7 +122,7 @@ class TextTokenizer:
         self,
         language="en-us",
         backend="espeak",
-        separator=Separator(word=" ", syllable="|", phone=None),
+        separator=Separator(word="_", syllable="*", phone="|"),
         preserve_punctuation=True,
         punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
         with_stress: bool = False,
@@ -95,37 +140,44 @@ class TextTokenizer:
                 language_switch=language_switch,
                 words_mismatch=words_mismatch,
             )
-        elif backend.startswith("pypinyin"):
-            if backend == "pypinyin_g2p":
-                phonemizer = PypinyinBackend(g2p_type="pypinyin_g2p")
-            else:
-                phonemizer = PypinyinBackend(g2p_type="pypinyin_g2p_phone")
+        elif backend in ["pypinyin", "pypinyin_initials_finals"]:
+            phonemizer = PypinyinBackend(
+                backend=backend,
+                punctuation_marks=punctuation_marks + separator.word,
+            )
         else:
             raise NotImplementedError(f"{backend}")
 
         self.backend = phonemizer
         self.separator = separator
 
-    def __call__(self, text, strip=True) -> List[str]:
+    def to_list(self, phonemized: str) -> List[str]:
+        fields = []
+        for word in phonemized.split(self.separator.word):
+            # "ɐ    m|iː|n?"    ɹ|ɪ|z|ɜː|v; h|ɪ|z.
+            pp = re.findall(r"\w+|[^\w\s]", word, re.UNICODE)
+            fields.extend(
+                [p for p in pp if p != self.separator.phone]
+                + [self.separator.word]
+            )
+        assert len("".join(fields[:-1])) == len(phonemized) - phonemized.count(
+            self.separator.phone
+        )
+        return fields[:-1]
+
+    def __call__(self, text, strip=True) -> List[List[str]]:
+        if isinstance(text, str):
+            text = [text]
+
         phonemized = self.backend.phonemize(
             text, separator=self.separator, strip=strip, njobs=1
         )
-        return phonemized
+        return [self.to_list(p) for p in phonemized]
 
 
 def tokenize_text(tokenizer: TextTokenizer, text: str):
-    if isinstance(tokenizer.backend, PypinyinBackend):  # for PypinyinBackend
-        tokenlist = tokenizer(text)
-        new_tokenlist = []
-        for tok in tokenlist:  # need to replace  " " with "_"
-            tmp_tok = tok.strip()
-            if tmp_tok == "":
-                new_tokenlist.append("_")
-            else:
-                new_tokenlist.append(tmp_tok)
-        return new_tokenlist
     phonemes = tokenizer([text.strip()])
-    return phonemes[0].replace(" ", "_")  # k2symbols
+    return phonemes[0]  # k2symbols
 
 
 def remove_encodec_weight_norm(model):
