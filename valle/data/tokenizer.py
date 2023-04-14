@@ -315,20 +315,18 @@ class AudioTokenExtractor(FeatureExtractor):
 
     def pad_tensor_list(self, tensor_list, device, padding_value=0):
         # 计算每个张量的长度
-        lengths = torch.tensor([tensor.shape[0] for tensor in tensor_list]).to(device)
-        # 计算最大长度
-        max_length = max(lengths).to(device)
+        lengths = [tensor.shape[0] for tensor in tensor_list]
         # 使用pad_sequence函数进行填充
         tensor_list = [torch.Tensor(t).to(device) for t in tensor_list]
-        padded_tensor = torch.nn.utils.rnn.pad_sequence(tensor_list, batch_first=True, padding_value=padding_value)
-        return padded_tensor, lengths, max_length
+        padded_tensor = torch.nn.utils.rnn.pad_sequence(
+            tensor_list, batch_first=True, padding_value=padding_value
+        )
+        return padded_tensor, lengths
 
     def extract_batch(self, samples, sampling_rate, lengths) -> np.ndarray:
-        # for s in samples:
-        #     print(type(s))
-        #     print(s.shape)
         samples = [wav.squeeze() for wav in samples]
-        samples, lengths, max_len = self.pad_tensor_list(samples, self.tokenizer.device)
+        device = self.tokenizer.device
+        samples, lengths = self.pad_tensor_list(samples, device)
         samples = samples.unsqueeze(1)
 
         if not isinstance(samples, torch.Tensor):
@@ -336,29 +334,30 @@ class AudioTokenExtractor(FeatureExtractor):
         if len(samples.shape) != 3:
             raise ValueError()
         if sampling_rate != self.tokenizer.sample_rate:
-            samples = [convert_audio(
-                wav,
-                sampling_rate,
-                self.tokenizer.sample_rate,
-                self.tokenizer.channels,
-            ) for wav in samples]
-        device = self.tokenizer.device
+            samples = [
+                convert_audio(
+                    wav,
+                    sampling_rate,
+                    self.tokenizer.sample_rate,
+                    self.tokenizer.channels,
+                )
+                for wav in samples
+            ]
         # Extract discrete codes from EnCodec
         with torch.no_grad():
             encoded_frames = self.tokenizer.encode(samples.detach().to(device))
-        padding_codes = torch.cat([encoded[0] for encoded in encoded_frames], dim=-1)  # [B, n_q, T]
-        # 取出codes
-        codes = []
-        for i in range(len(lengths)):
-            c = padding_codes[i]
-            duration = round(lengths[i].item() / sampling_rate, ndigits=12)
+        encoded_frames = encoded_frames[0][0]  # [B, n_q, T]
+        batch_codes = []
+        for b, length in enumerate(lengths):
+            codes = encoded_frames[b]
+            duration = round(length / sampling_rate, ndigits=12)
             expected_num_frames = compute_num_frames(
                 duration=duration,
                 frame_shift=self.frame_shift,
                 sampling_rate=sampling_rate,
             )
-            codes.append(c[..., :expected_num_frames])
-        return [c.cpu().permute(1, 0).numpy() for c in codes]
+            batch_codes.append(codes[..., :expected_num_frames])
+        return [codes.cpu().permute(1, 0).numpy() for codes in batch_codes]
 
 
 if __name__ == "__main__":
