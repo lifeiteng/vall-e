@@ -82,16 +82,20 @@ fi
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare aishell train/dev/test"
   if [ ! -e ${audio_feats_dir}/.aishell.train.done ]; then
-
-    # train
-    lhotse copy \
-        ${audio_feats_dir}/aishell_cuts_train.jsonl.gz \
-        ${audio_feats_dir}/cuts_train.jsonl.gz
-    # dev
+    # dev 14326
     lhotse subset --first 400 \
         ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
         ${audio_feats_dir}/cuts_dev.jsonl.gz
 
+    lhotse subset --last 13926 \
+        ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
+        ${audio_feats_dir}/cuts_dev_others.jsonl.gz
+
+    # train
+    lhotse combine \
+        ${audio_feats_dir}/cuts_dev_others.jsonl.gz \
+        ${audio_feats_dir}/aishell_cuts_train.jsonl.gz \
+        ${audio_feats_dir}/cuts_train.jsonl.gz
 
     # test
     lhotse copy \
