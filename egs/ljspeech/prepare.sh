@@ -88,6 +88,7 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   if [ ! -e ${audio_feats_dir}/.ljspeech.done ]; then
     python3 bin/tokenizer.py --dataset-parts "train test dev" --prefix "ljspeech" \
         --audio-extractor ${audio_extractor} \
+        --batch-duration 400 \
         --src-dir "data/manifests" \
         --output-dir "${audio_feats_dir}"
   fi

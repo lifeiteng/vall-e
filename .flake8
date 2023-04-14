@@ -19,7 +19,8 @@ per-file-ignores =
     valle/data/fbank.py: E501,
     valle/data/input_strategies.py: E501,
     valle/data/datamodule.py: E501,
-    valle/tests/*.py: F841
+    valle/tests/*.py: F841, F401
+    valle/tests/data/*.py: F841, F401
 
 exclude =
   .git,

@@ -26,6 +26,7 @@ import os
 from pathlib import Path
 
 import torch
+import torch.multiprocessing
 from icefall.utils import get_executor
 from lhotse import CutSet, NumpyHdf5Writer
 from lhotse.recipes.utils import read_manifests_if_cached
@@ -49,6 +50,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 # even when we are not invoking the main (e.g. when spawning subprocesses).
 torch.set_num_threads(1)
 torch.set_num_interop_threads(1)
+torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 def get_args():
@@ -65,6 +67,12 @@ def get_args():
         type=Path,
         default=Path("data/tokenized"),
         help="Path to the tokenized files",
+    )
+    parser.add_argument(
+        "--text-extractor",
+        type=str,
+        default="espeak",
+        help="espeak or pypinyin or pypinyin_initials_finals",
     )
     parser.add_argument(
         "--audio-extractor",
@@ -89,6 +97,13 @@ def get_args():
         type=str,
         default="jsonl.gz",
         help="suffix of the manifest file",
+    )
+    parser.add_argument(
+        "--batch-duration",
+        type=float,
+        default=400.0,
+        help="The maximum number of audio seconds in a batch."
+        "Determines batch size dynamically.",
     )
 
     return parser.parse_args()
@@ -118,15 +133,7 @@ def main():
         suffix=args.suffix,
     )
 
-    text_tokenizer = TextTokenizer()
-
-    # Fix RuntimeError: Cowardly refusing to serialize non-leaf tensor...
-    # by remove encodec weight_norm
-    num_jobs = min(8, os.cpu_count())
-
-    # TODO: use multi-gpus witch torch.device("cuda", rank)
-    if torch.cuda.is_available():
-        num_jobs = 1
+    text_tokenizer = TextTokenizer(backend=args.text_extractor)
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -138,6 +145,7 @@ def main():
         assert args.audio_extractor == "Fbank"
         extractor = get_fbank_extractor()
 
+    num_jobs = min(32, os.cpu_count())
     with get_executor() as ex:
         for partition, m in manifests.items():
             logging.info(
@@ -158,17 +166,38 @@ def main():
                     f"{args.output_dir}/{args.prefix}_fbank_{partition}"
                 )
 
-            if args.prefix == "ljspeech":
+            if args.prefix == "ljspeech" or args.prefix == "aishell":
+                if args.prefix == "aishell":
+                    # NOTE: the loudness of aishell audio files is around -33
+                    # The best way is datamodule --on-the-fly-feats --enable-audio-aug
+                    cut_set = cut_set.normalize_loudness(
+                        target=-20.0, affix_id=True
+                    )
+
                 cut_set = cut_set.resample(24000)
 
             with torch.no_grad():
-                cut_set = cut_set.compute_and_store_features(
-                    extractor=extractor,
-                    storage_path=storage_path,
-                    num_jobs=num_jobs if ex is None else 64,
-                    executor=ex,
-                    storage_type=NumpyHdf5Writer,
-                )
+                if (
+                    torch.cuda.is_available()
+                    and args.audio_extractor == "Encodec"
+                ):
+                    cut_set = cut_set.compute_and_store_features_batch(
+                        extractor=extractor,
+                        storage_path=storage_path,
+                        num_workers=num_jobs,
+                        batch_duration=args.batch_duration,
+                        collate=False,
+                        overwrite=True,
+                        storage_type=NumpyHdf5Writer,
+                    )
+                else:
+                    cut_set = cut_set.compute_and_store_features(
+                        extractor=extractor,
+                        storage_path=storage_path,
+                        num_jobs=num_jobs if ex is None else 64,
+                        executor=ex,
+                        storage_type=NumpyHdf5Writer,
+                    )
 
             # Tokenize Text
             for c in tqdm(cut_set):
@@ -176,13 +205,18 @@ def main():
                     text = c.supervisions[0].custom["normalized_text"]
                     text = text.replace("”", '"').replace("“", '"')
                     phonemes = tokenize_text(text_tokenizer, text=text)
+                elif args.prefix == "aishell":
+                    phonemes = tokenize_text(
+                        text_tokenizer, text=c.supervisions[0].text
+                    )
+                    c.supervisions[0].custom = {}
                 else:
                     assert args.prefix == "libritts"
                     phonemes = tokenize_text(
                         text_tokenizer, text=c.supervisions[0].text
                     )
                 c.supervisions[0].custom["tokens"] = {"text": phonemes}
-                unique_symbols.update(list(phonemes))
+                unique_symbols.update(phonemes)
 
             cuts_filename = f"{args.prefix}_cuts_{partition}.{args.suffix}"
             cut_set.to_file(f"{args.output_dir}/{cuts_filename}")

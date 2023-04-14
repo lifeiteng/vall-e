@@ -71,6 +71,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   if [ ! -e ${audio_feats_dir}/.libritts.tokenize.done ]; then
     python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
         --audio-extractor ${audio_extractor} \
+        --batch-duration 400 \
         --src-dir "data/manifests" \
         --output-dir "${audio_feats_dir}"
   fi

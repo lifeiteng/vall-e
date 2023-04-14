@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Pattern, Union
 
@@ -29,6 +30,88 @@ from phonemizer.backend.espeak.words_mismatch import WordMismatch
 from phonemizer.punctuation import Punctuation
 from phonemizer.separator import Separator
 
+try:
+    from pypinyin import Style, pinyin
+    from pypinyin.style._utils import get_finals, get_initials
+except Exception:
+    pass
+
+
+class PypinyinBackend:
+    """PypinyinBackend for Chinese. Most codes is referenced from espnet.
+    There are two types pinyin or initials_finals, one is
+    just like "ni1 hao3", the other is like "n i1 h ao3".
+    """
+
+    def __init__(
+        self,
+        backend="initials_finals",
+        punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
+    ) -> None:
+        self.backend = backend
+        self.punctuation_marks = punctuation_marks
+
+    def phonemize(
+        self, text: List[str], separator: Separator, strip=True, njobs=1
+    ) -> List[str]:
+        assert isinstance(text, List)
+        phonemized = []
+        for _text in text:
+            _text = re.sub(" +", " ", _text.strip())
+            _text = _text.replace(" ", separator.word)
+            phones = []
+            if self.backend == "pypinyin":
+                for n, py in enumerate(
+                    pinyin(
+                        _text, style=Style.TONE3, neutral_tone_with_five=True
+                    )
+                ):
+                    if all([c in self.punctuation_marks for c in py[0]]):
+                        if len(phones):
+                            assert phones[-1] == separator.syllable
+                            phones.pop(-1)
+
+                        phones.extend(list(py[0]))
+                    else:
+                        phones.extend([py[0], separator.syllable])
+            elif self.backend == "pypinyin_initials_finals":
+                for n, py in enumerate(
+                    pinyin(
+                        _text, style=Style.TONE3, neutral_tone_with_five=True
+                    )
+                ):
+                    if all([c in self.punctuation_marks for c in py[0]]):
+                        if len(phones):
+                            assert phones[-1] == separator.syllable
+                            phones.pop(-1)
+                        phones.extend(list(py[0]))
+                    else:
+                        if py[0][-1].isalnum():
+                            initial = get_initials(py[0], strict=False)
+                            if py[0][-1].isdigit():
+                                final = (
+                                    get_finals(py[0][:-1], strict=False)
+                                    + py[0][-1]
+                                )
+                            else:
+                                final = get_finals(py[0], strict=False)
+                            phones.extend(
+                                [
+                                    initial,
+                                    separator.phone,
+                                    final,
+                                    separator.syllable,
+                                ]
+                            )
+                        else:
+                            assert ValueError
+            else:
+                raise NotImplementedError
+            phonemized.append(
+                "".join(phones).rstrip(f"{separator.word}{separator.syllable}")
+            )
+        return phonemized
+
 
 class TextTokenizer:
     """Phonemize Text."""
@@ -37,7 +120,7 @@ class TextTokenizer:
         self,
         language="en-us",
         backend="espeak",
-        separator=Separator(word=" ", syllable="|", phone=None),
+        separator=Separator(word="_", syllable="-", phone="|"),
         preserve_punctuation=True,
         punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
         with_stress: bool = False,
@@ -55,22 +138,44 @@ class TextTokenizer:
                 language_switch=language_switch,
                 words_mismatch=words_mismatch,
             )
+        elif backend in ["pypinyin", "pypinyin_initials_finals"]:
+            phonemizer = PypinyinBackend(
+                backend=backend,
+                punctuation_marks=punctuation_marks + separator.word,
+            )
         else:
             raise NotImplementedError(f"{backend}")
 
         self.backend = phonemizer
         self.separator = separator
 
-    def __call__(self, text, strip=True) -> List[str]:
+    def to_list(self, phonemized: str) -> List[str]:
+        fields = []
+        for word in phonemized.split(self.separator.word):
+            # "ɐ    m|iː|n?"    ɹ|ɪ|z|ɜː|v; h|ɪ|z.
+            pp = re.findall(r"\w+|[^\w\s]", word, re.UNICODE)
+            fields.extend(
+                [p for p in pp if p != self.separator.phone]
+                + [self.separator.word]
+            )
+        assert len("".join(fields[:-1])) == len(phonemized) - phonemized.count(
+            self.separator.phone
+        )
+        return fields[:-1]
+
+    def __call__(self, text, strip=True) -> List[List[str]]:
+        if isinstance(text, str):
+            text = [text]
+
         phonemized = self.backend.phonemize(
             text, separator=self.separator, strip=strip, njobs=1
         )
-        return phonemized
+        return [self.to_list(p) for p in phonemized]
 
 
-def tokenize_text(tokenizer: TextTokenizer, text: str):
+def tokenize_text(tokenizer: TextTokenizer, text: str) -> List[str]:
     phonemes = tokenizer([text.strip()])
-    return phonemes[0].replace(" ", "_")  # k2symbols
+    return phonemes[0]  # k2symbols
 
 
 def remove_encodec_weight_norm(model):
@@ -207,6 +312,52 @@ class AudioTokenExtractor(FeatureExtractor):
 
     def feature_dim(self, sampling_rate: int) -> int:
         return self.config.num_quantizers
+
+    def pad_tensor_list(self, tensor_list, device, padding_value=0):
+        # 计算每个张量的长度
+        lengths = [tensor.shape[0] for tensor in tensor_list]
+        # 使用pad_sequence函数进行填充
+        tensor_list = [torch.Tensor(t).to(device) for t in tensor_list]
+        padded_tensor = torch.nn.utils.rnn.pad_sequence(
+            tensor_list, batch_first=True, padding_value=padding_value
+        )
+        return padded_tensor, lengths
+
+    def extract_batch(self, samples, sampling_rate, lengths) -> np.ndarray:
+        samples = [wav.squeeze() for wav in samples]
+        device = self.tokenizer.device
+        samples, lengths = self.pad_tensor_list(samples, device)
+        samples = samples.unsqueeze(1)
+
+        if not isinstance(samples, torch.Tensor):
+            samples = torch.from_numpy(samples)
+        if len(samples.shape) != 3:
+            raise ValueError()
+        if sampling_rate != self.tokenizer.sample_rate:
+            samples = [
+                convert_audio(
+                    wav,
+                    sampling_rate,
+                    self.tokenizer.sample_rate,
+                    self.tokenizer.channels,
+                )
+                for wav in samples
+            ]
+        # Extract discrete codes from EnCodec
+        with torch.no_grad():
+            encoded_frames = self.tokenizer.encode(samples.detach().to(device))
+        encoded_frames = encoded_frames[0][0]  # [B, n_q, T]
+        batch_codes = []
+        for b, length in enumerate(lengths):
+            codes = encoded_frames[b]
+            duration = round(length / sampling_rate, ndigits=12)
+            expected_num_frames = compute_num_frames(
+                duration=duration,
+                frame_shift=self.frame_shift,
+                sampling_rate=sampling_rate,
+            )
+            batch_codes.append(codes[..., :expected_num_frames])
+        return [codes.cpu().permute(1, 0).numpy() for codes in batch_codes]
 
 
 if __name__ == "__main__":

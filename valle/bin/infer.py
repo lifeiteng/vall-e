@@ -78,6 +78,12 @@ def get_args():
         default="data/tokenized/unique_text_tokens.k2symbols",
         help="Path to the unique text tokens file.",
     )
+    parser.add_argument(
+        "--text-extractor",
+        type=str,
+        default="espeak",
+        help="espeak or pypinyin or pypinyin_initials_finals",
+    )
 
     parser.add_argument(
         "--checkpoint",
@@ -120,7 +126,7 @@ def get_args():
 @torch.no_grad()
 def main():
     args = get_args()
-    text_tokenizer = TextTokenizer()
+    text_tokenizer = TextTokenizer(backend=args.text_extractor)
     text_collater = get_text_token_collater(args.text_tokens)
     audio_tokenizer = AudioTokenizer()
 
