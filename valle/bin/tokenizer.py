@@ -167,14 +167,14 @@ def main():
                 )
 
             if args.prefix == "ljspeech" or args.prefix == "aishell":
-                if args.prefix == "aishell":
-                    # NOTE: the loudness of aishell audio files is around -33
-                    # The best way is datamodule --on-the-fly-feats --enable-audio-aug
-                    cut_set = cut_set.normalize_loudness(
-                        target=-20.0, affix_id=True
-                    )
-
                 cut_set = cut_set.resample(24000)
+                # https://github.com/lifeiteng/vall-e/issues/90
+                # if args.prefix == "aishell":
+                #     # NOTE: the loudness of aishell audio files is around -33
+                #     # The best way is datamodule --on-the-fly-feats --enable-audio-aug
+                #     cut_set = cut_set.normalize_loudness(
+                #         target=-20.0, affix_id=True
+                #     )
 
             with torch.no_grad():
                 if (
