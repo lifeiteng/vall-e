@@ -643,7 +643,13 @@ def train_one_epoch(
             )
 
     batch_idx = 0
-    stop_iteration = torch.tensor(0).cuda(rank)
+    
+    device = (
+        model.device
+        if isinstance(model, DDP)
+        else next(model.parameters()).device
+    )
+    stop_iteration = torch.tensor(0).to(device)
     while True:
         try:
             batch = next(iter_dl)
@@ -651,6 +657,7 @@ def train_one_epoch(
         except StopIteration:
             batch = None
             stop_iteration.fill_(1)
+
         if world_size > 1:
             import torch.distributed as dist
             dist.all_reduce(stop_iteration)
@@ -661,7 +668,7 @@ def train_one_epoch(
                 scaler.update()
                 optimizer.zero_grad()
             break
-            
+
         batch_idx += 1
 
         params.batch_idx_train += 1
