@@ -643,17 +643,25 @@ def train_one_epoch(
             )
 
     batch_idx = 0
+    stop_iteration = torch.tensor(0).cuda(rank)
     while True:
         try:
             batch = next(iter_dl)
+            stop_iteration.fill_(0)
         except StopIteration:
+            batch = None
+            stop_iteration.fill_(1)
+        if world_size > 1:
+            import torch.distributed as dist
+            dist.all_reduce(stop_iteration)
+        if stop_iteration.item() != 0:
             logging.info("Reaches end of dataloader.")
             if params.batch_idx_train % params.accumulate_grad_steps:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
             break
-
+            
         batch_idx += 1
 
         params.batch_idx_train += 1
