@@ -17,8 +17,9 @@ stop_stage=3
 
 dl_dir=$PWD/download
 
-audio_extractor="Fbank"  # or Fbank
-audio_feats_dir=data/fbank
+audio_extractor="Encodec"  # or Fbank
+audio_feats_dir=data/tokenized
+
 
 . shared/parse_options.sh || exit 1
 
