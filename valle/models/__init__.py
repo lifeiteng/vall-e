@@ -3,8 +3,15 @@ import argparse
 import torch.nn as nn
 from icefall.utils import AttributeDict, str2bool
 
+from .macros import (
+    NUM_AUDIO_TOKENS,
+    NUM_MEL_BINS,
+    NUM_SPEAKER_CLASSES,
+    NUM_TEXT_TOKENS,
+    SPEAKER_EMBEDDING_DIM,
+)
 from .transformer import Transformer
-from .valle import NUM_MEL_BINS, VALLE, VALLF
+from .valle import VALLE, VALLF
 from .visualizer import visualize
 
 
@@ -13,7 +20,7 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         "--model-name",
         type=str,
         default="VALL-E",
-        help="VALL-E, VALL-F or Transformer.",
+        help="VALL-E, VALL-F, Transformer.",
     )
     parser.add_argument(
         "--decoder-dim",
@@ -52,6 +59,7 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="Whether add PreNet after Inputs.",
     )
 
+    # VALL-E & F
     parser.add_argument(
         "--prefix-mode",
         type=int,
@@ -59,12 +67,31 @@ def add_model_arguments(parser: argparse.ArgumentParser):
         help="The mode for how to prefix VALL-E NAR Decoder, "
         "0: no prefix, 1: 0 to random, 2: random to random, 4: chunk of pre or post utterance.",
     )
-
     parser.add_argument(
         "--share-embedding",
         type=str2bool,
         default=True,
         help="Share the parameters of the output projection layer with the parameters of the acoustic embedding.",
+    )
+    parser.add_argument(
+        "--prepend-bos",
+        type=str2bool,
+        default=False,
+        help="Whether prepend <BOS> to the acoustic tokens -> AR Decoder inputs.",
+    )
+    parser.add_argument(
+        "--num-quantizers",
+        type=int,
+        default=8,
+        help="Number of Audio/Semantic quantization layers.",
+    )
+
+    # Transformer
+    parser.add_argument(
+        "--scaling-xformers",
+        type=str2bool,
+        default=False,
+        help="Apply Reworked Conformer scaling on Transformers.",
     )
 
 
@@ -79,6 +106,8 @@ def get_model(params: AttributeDict) -> nn.Module:
             prefix_mode=params.prefix_mode,
             share_embedding=params.share_embedding,
             nar_scale_factor=params.scale_factor,
+            prepend_bos=params.prepend_bos,
+            num_quantizers=params.num_quantizers,
         )
     elif params.model_name.lower() in ["vall-e", "valle"]:
         model = VALLE(
@@ -90,6 +119,8 @@ def get_model(params: AttributeDict) -> nn.Module:
             prefix_mode=params.prefix_mode,
             share_embedding=params.share_embedding,
             nar_scale_factor=params.scale_factor,
+            prepend_bos=params.prepend_bos,
+            num_quantizers=params.num_quantizers,
         )
     else:
         assert params.model_name in ["Transformer"]
@@ -99,6 +130,7 @@ def get_model(params: AttributeDict) -> nn.Module:
             params.num_decoder_layers,
             norm_first=params.norm_first,
             add_prenet=params.add_prenet,
+            scaling_xformers=params.scaling_xformers,
         )
 
     return model

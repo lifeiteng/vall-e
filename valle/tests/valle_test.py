@@ -41,9 +41,9 @@ class TestModel(unittest.TestCase):
         params.num_decoder_layers = 4
 
         x = torch.from_numpy(np.random.randint(0, 100, size=[4, 8]))
-        x_lens = torch.from_numpy(np.random.randint(4, 8, size=[4]))
+        x_lens = torch.from_numpy(np.random.randint(6, 8, size=[4]))
         x_lens[-1] = 8
-        enroll_x_lens = torch.from_numpy(np.random.randint(1, 3, size=[4]))
+        enroll_x_lens = torch.from_numpy(np.random.randint(2, 4, size=[4]))
 
         y = torch.from_numpy(np.random.randint(0, 1000, size=[4, 16, 8]))
         y_lens = torch.from_numpy(np.random.randint(8, 16, size=[4]))
@@ -54,6 +54,8 @@ class TestModel(unittest.TestCase):
         params.model_name = "VALL-F"
         params.share_embedding = True
         params.scale_factor = 1.0
+        params.prepend_bos = True
+        params.num_quantizers = 1
 
         for device in self.devices:
             for mode in [0, 1, 2]:
@@ -83,6 +85,9 @@ class TestModel(unittest.TestCase):
                     enroll_x_lens=enroll_x_lens[-1:],
                 )
 
+                params.prepend_bos = not params.prepend_bos
+                params.num_quantizers += 1
+
     def test_valle(self):
         params = AttributeDict()
         params.decoder_dim = 64
@@ -103,6 +108,8 @@ class TestModel(unittest.TestCase):
         params.model_name = "VALL-E"
         params.share_embedding = True
         params.scale_factor = 1.0
+        params.prepend_bos = False
+        params.num_quantizers = 8
 
         for device in self.devices:
             for mode in [0, 1, 2]:
@@ -123,6 +130,9 @@ class TestModel(unittest.TestCase):
                     x[-1:], x_lens[-1:], y[-1:], enroll_x_lens=enroll_x_lens
                 )
                 params.scale_factor = 0.5
+
+                params.prepend_bos = not params.prepend_bos
+                params.num_quantizers -= 1
 
     def test_vallef_prefix4(self):
         params = AttributeDict()
@@ -146,6 +156,8 @@ class TestModel(unittest.TestCase):
         params.add_prenet = True
         params.share_embedding = False
         params.scale_factor = 1.0
+        params.prepend_bos = False
+        params.num_quantizers = 8
 
         for device in self.devices:
             for model_name in ["VALL-E", "VALL-F"]:
@@ -229,6 +241,7 @@ class TestModel(unittest.TestCase):
         params.model_name = "Transformer"
         params.norm_first = False
         params.add_prenet = True
+        params.scaling_xformers = False
 
         for device in self.devices:
             # Transformer
@@ -247,6 +260,8 @@ class TestModel(unittest.TestCase):
             model.eval()
             codes = model.inference(x[-1:], x_lens[-1:])
             params.add_prenet = False
+
+            params.scaling_xformers = not params.scaling_xformers
 
 
 if __name__ == "__main__":

@@ -39,8 +39,13 @@ def visualize(
 
     utt_ids, texts = batch["utt_id"], batch["text"]
 
-    encoder_outputs = predicts[0].to("cpu").detach().numpy()
-    decoder_outputs = predicts[1].to("cpu").detach().numpy()
+    encoder_outputs = predicts[0].to("cpu").type(torch.float32).detach().numpy()
+    decoder_outputs = predicts[1]
+    if isinstance(decoder_outputs, list):
+        decoder_outputs = decoder_outputs[-1]
+    decoder_outputs = (
+        decoder_outputs.to("cpu").type(torch.float32).detach().numpy()
+    )
 
     vmin, vmax = 0, 1024  # Encodec
     if decoder_outputs.dtype == np.float32:
@@ -97,5 +102,5 @@ def visualize(
         plt.xlabel("Decoder Target")
         plt.colorbar()
 
-        plt.savefig(f"{output_dir}/{utt_id}_features.png")
+        plt.savefig(f"{output_dir}/{utt_id}.png")
         plt.close()
