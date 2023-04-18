@@ -7,6 +7,7 @@ repos:
         additional_dependencies: ['click==8.0.1']
         exclude: valle\/__init__\.py
         exclude: valle\/utils\/symbol_table\.py
+        exclude: valle\/modules\/scaling\.py
         exclude: valle\/tests\/data\/tokenizer\_test\.py
 
   - repo: https://github.com/PyCQA/flake8
@@ -14,6 +15,7 @@ repos:
     hooks:
       - id: flake8
         args: [--max-line-length=80]
+        exclude: valle\/modules\/scaling\.py
         exclude: valle\/tests\/data\/tokenizer\_test\.py
 
   - repo: https://github.com/pycqa/isort
@@ -22,6 +24,7 @@ repos:
       - id: isort
         args: [--profile=black, --line-length=80]
         exclude: valle\/utils\/symbol_table\.py
+        exclude: valle\/modules\/scaling\.py
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.0.1
