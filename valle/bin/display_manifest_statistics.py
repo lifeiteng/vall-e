@@ -22,14 +22,29 @@ You can use the displayed value to choose minimum/maximum duration
 to remove short and long utterances during the training.
 """
 
+import argparse
+from pathlib import Path
 
 from lhotse import load_manifest_lazy
 
 
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=Path("data/tokenized"),
+        help="Path to the tokenized manifests.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = get_args()
+    manifest_dir = args.manifest_dir or Path("data/tokenized")
     for part in ["train", "dev", "test"]:
         print(f"##  {part}")
-        cuts = load_manifest_lazy(f"./data/tokenized/cuts_{part}.jsonl.gz")
+        cuts = load_manifest_lazy(manifest_dir / f"cuts_{part}.jsonl.gz")
         cuts.describe()
         print("\n")
 
