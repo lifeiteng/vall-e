@@ -683,7 +683,7 @@ def train_one_epoch(
                     is_training=True,
                 )
             # summary stats
-            tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info / params.reset_interval
+            tot_loss = (tot_loss * (1 - 1 / params.reset_interval)) + loss_info * (1 / params.reset_interval)
 
             # NOTE: We use reduction==sum and loss is computed over utterances
             # in the batch and there is no normalization to it so far.
