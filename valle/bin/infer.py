@@ -256,7 +256,7 @@ def main():
                 f"{args.output_dir}/{n}.wav", samples[0].cpu(), 24000
             )
         else:  # Transformer
-            model.visualize(encoded_frames, args.output_dir)
+            pass
 
 
 torch.set_num_threads(1)
