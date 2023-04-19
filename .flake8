@@ -16,6 +16,7 @@ per-file-ignores =
     valle/modules/embedding.py: E203,
     valle/modules/scheduler.py: F401,
     valle/modules/transformer.py: E501,
+    valle/modules/scaling.py: E501, F841, F401
     valle/data/fbank.py: E501,
     valle/data/input_strategies.py: E501,
     valle/data/datamodule.py: E501,

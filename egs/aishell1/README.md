@@ -1,8 +1,4 @@
 # aishell1
-## Install deps
-```
-pip install pypinyin
-```
 
 ## Prepare Dataset
 ```
@@ -143,19 +139,5 @@ Speech duration statistics:
 ╘══════════════════════════════╧══════════╧══════════════════════╛
 ```
 
-
-## Training
-refer to [LibriTTS Training](../libritts/README.md#Training)
-
-## Inference
-* make sure `--decoder-dim 1024 ...` are same with `Training`
-```
-python3 bin/infer.py --output-dir demos \
-    --top-k -1 --temperature 1.0 \
-    --model-name "VALL-E" --norm-first true --add-prenet false \
-    --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
-    --text-prompts "甚至 出现 交易 几乎 停滞 的 情况" \
-    --audio-prompts ./prompts/ch_24k_loudness_normalized20.wav \
-    --text "大家好 非常 高兴 能 认识 大家" --text-extractor "pypinyin_initials_finals" \
-    --checkpoint exp/valle/best-train-loss.pt
-```
+## Training & Inference
+refer to [Training](../../README.md##Training&Inference)

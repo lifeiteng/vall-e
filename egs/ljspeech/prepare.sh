@@ -101,3 +101,5 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   ln -sf ljspeech_cuts_test.jsonl.gz cuts_test.jsonl.gz
   cd -
 fi
+
+python3 ./bin/display_manifest_statistics.py --manifest-dir ${audio_feats_dir}

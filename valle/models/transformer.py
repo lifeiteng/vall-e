@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Tuple, Union
+from functools import partial
+from typing import Any, Dict, List, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -20,10 +21,21 @@ import torch.nn.functional as F
 from icefall.utils import make_pad_mask
 from torchmetrics.classification import BinaryAccuracy
 
-from valle.models.valle import NUM_TEXT_TOKENS, Transpose
+from valle.models.valle import Transpose
 from valle.modules.embedding import SinePositionalEmbedding, TokenEmbedding
+from valle.modules.scaling import BalancedDoubleSwish, ScaledLinear
+from valle.modules.transformer import (
+    BalancedBasicNorm,
+    IdentityNorm,
+    TransformerDecoderLayer,
+    TransformerEncoder,
+    TransformerEncoderLayer,
+)
 
-NUM_MEL_BINS = 100  # BigVGAN bigvgan_24khz_100band
+from .macros import NUM_MEL_BINS, NUM_TEXT_TOKENS
+from .visualizer import visualize
+
+IdentityNorm = IdentityNorm
 
 
 class Transformer(nn.Module):
@@ -39,6 +51,7 @@ class Transformer(nn.Module):
         num_layers: int,
         norm_first: bool = True,
         add_prenet: bool = False,
+        scaling_xformers: bool = False,
     ):
         """
         Args:
@@ -80,9 +93,14 @@ class Transformer(nn.Module):
                 nn.Dropout(0.5),
                 nn.Linear(256, d_model),
             )
+
+            assert scaling_xformers is False  # TODO: update this block
         else:
             self.encoder_prenet = nn.Identity()
-            self.decoder_prenet = nn.Linear(NUM_MEL_BINS, d_model)
+            if scaling_xformers:
+                self.decoder_prenet = ScaledLinear(NUM_MEL_BINS, d_model)
+            else:
+                self.decoder_prenet = nn.Linear(NUM_MEL_BINS, d_model)
 
         self.encoder_position = SinePositionalEmbedding(
             d_model,
@@ -93,36 +111,96 @@ class Transformer(nn.Module):
             d_model, dropout=0.1, scale=False
         )
 
-        self.encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
-                activation=F.relu,
-                dropout=0.1,
-                batch_first=True,
-                norm_first=norm_first,
-            ),
-            num_layers=num_layers,
-            norm=nn.LayerNorm(d_model) if norm_first else None,
-        )
+        if scaling_xformers:
+            self.encoder = TransformerEncoder(
+                TransformerEncoderLayer(
+                    d_model,
+                    nhead,
+                    dim_feedforward=d_model * 4,
+                    dropout=0.1,
+                    batch_first=True,
+                    norm_first=norm_first,
+                    linear1_self_attention_cls=ScaledLinear,
+                    linear2_self_attention_cls=partial(
+                        ScaledLinear, initial_scale=0.01
+                    ),
+                    linear1_feedforward_cls=ScaledLinear,
+                    linear2_feedforward_cls=partial(
+                        ScaledLinear, initial_scale=0.01
+                    ),
+                    activation=partial(
+                        BalancedDoubleSwish,
+                        channel_dim=-1,
+                        max_abs=10.0,
+                        min_prob=0.25,
+                    ),
+                    layer_norm_cls=IdentityNorm,
+                ),
+                num_layers=num_layers,
+                norm=BalancedBasicNorm(d_model) if norm_first else None,
+            )
 
-        self.decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(
-                d_model,
-                nhead,
-                dim_feedforward=d_model * 4,
-                activation=F.relu,
-                dropout=0.1,
-                batch_first=True,
-                norm_first=norm_first,
-            ),
-            num_layers=num_layers,
-            norm=nn.LayerNorm(d_model) if norm_first else None,
-        )
+            self.decoder = nn.TransformerDecoder(
+                TransformerDecoderLayer(
+                    d_model,
+                    nhead,
+                    dim_feedforward=d_model * 4,
+                    dropout=0.1,
+                    batch_first=True,
+                    norm_first=norm_first,
+                    linear1_self_attention_cls=ScaledLinear,
+                    linear2_self_attention_cls=partial(
+                        ScaledLinear, initial_scale=0.01
+                    ),
+                    linear1_feedforward_cls=ScaledLinear,
+                    linear2_feedforward_cls=partial(
+                        ScaledLinear, initial_scale=0.01
+                    ),
+                    activation=partial(
+                        BalancedDoubleSwish,
+                        channel_dim=-1,
+                        max_abs=10.0,
+                        min_prob=0.25,
+                    ),
+                    layer_norm_cls=IdentityNorm,
+                ),
+                num_layers=num_layers,
+                norm=BalancedBasicNorm(d_model) if norm_first else None,
+            )
 
-        self.predict_layer = nn.Linear(d_model, NUM_MEL_BINS)
-        self.stop_layer = nn.Linear(d_model, 1)
+            self.predict_layer = ScaledLinear(d_model, NUM_MEL_BINS)
+            self.stop_layer = nn.Linear(d_model, 1)
+        else:
+            self.encoder = nn.TransformerEncoder(
+                nn.TransformerEncoderLayer(
+                    d_model,
+                    nhead,
+                    dim_feedforward=d_model * 4,
+                    activation=F.relu,
+                    dropout=0.1,
+                    batch_first=True,
+                    norm_first=norm_first,
+                ),
+                num_layers=num_layers,
+                norm=nn.LayerNorm(d_model) if norm_first else None,
+            )
+
+            self.decoder = nn.TransformerDecoder(
+                nn.TransformerDecoderLayer(
+                    d_model,
+                    nhead,
+                    dim_feedforward=d_model * 4,
+                    activation=F.relu,
+                    dropout=0.1,
+                    batch_first=True,
+                    norm_first=norm_first,
+                ),
+                num_layers=num_layers,
+                norm=nn.LayerNorm(d_model) if norm_first else None,
+            )
+
+            self.predict_layer = nn.Linear(d_model, NUM_MEL_BINS)
+            self.stop_layer = nn.Linear(d_model, 1)
 
         self.stop_accuracy_metric = BinaryAccuracy(
             threshold=0.5, multidim_average="global"
@@ -149,6 +227,7 @@ class Transformer(nn.Module):
         y_lens: torch.Tensor,
         reduction: str = "sum",
         train_stage: int = 0,
+        **kwargs,
     ) -> Tuple[torch.Tensor, Union[torch.Tensor, None]]:
         """
         Args:
@@ -307,27 +386,9 @@ class Transformer(nn.Module):
 
     def visualize(
         self,
-        fbank: torch.Tensor,
-        output_path: str,
-    ) -> torch.Tensor:
-        """
-        Args:
-          fbank:
-            A 3-D tensor of shape (N, T, NUM_MEL_BINS).
-        Returns:
-          None.
-        """
-        import matplotlib.pyplot as plt
-
-        fbank = fbank.transpose(1, 2).cpu().numpy()
-        for b in range(fbank.shape[0]):
-            _ = plt.figure(figsize=(12, 6))
-            plt.imshow(
-                X=fbank[b],
-                cmap=plt.get_cmap("jet"),
-                aspect="auto",
-                interpolation="nearest",
-            )
-            plt.gca().invert_yaxis()
-            plt.savefig(f"{output_path}/{b}_mels.png")
-            plt.close()
+        predicts: Tuple[torch.Tensor],
+        batch: Dict[str, Union[List, torch.Tensor]],
+        output_dir: str,
+        limit: int = 4,
+    ) -> None:
+        visualize(predicts, batch, output_dir, limit=limit)

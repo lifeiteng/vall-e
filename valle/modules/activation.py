@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 from torch import Tensor
-from torch.nn import Module
+from torch.nn import Linear, Module
 from torch.nn import functional as F
 from torch.nn.init import constant_, xavier_normal_, xavier_uniform_
 from torch.nn.modules.linear import NonDynamicallyQuantizableLinear
@@ -80,6 +80,8 @@ class MultiheadAttention(Module):
         kdim=None,
         vdim=None,
         batch_first=False,
+        linear1_cls=Linear,
+        linear2_cls=Linear,
         device=None,
         dtype=None,
     ) -> None:
@@ -100,35 +102,6 @@ class MultiheadAttention(Module):
             self.head_dim * num_heads == self.embed_dim
         ), "embed_dim must be divisible by num_heads"
 
-        if not self._qkv_same_embed_dim:
-            self.q_proj_weight = Parameter(
-                torch.empty((embed_dim, embed_dim), **factory_kwargs)
-            )
-            self.k_proj_weight = Parameter(
-                torch.empty((embed_dim, self.kdim), **factory_kwargs)
-            )
-            self.v_proj_weight = Parameter(
-                torch.empty((embed_dim, self.vdim), **factory_kwargs)
-            )
-            self.register_parameter("in_proj_weight", None)
-        else:
-            self.in_proj_weight = Parameter(
-                torch.empty((3 * embed_dim, embed_dim), **factory_kwargs)
-            )
-            self.register_parameter("q_proj_weight", None)
-            self.register_parameter("k_proj_weight", None)
-            self.register_parameter("v_proj_weight", None)
-
-        if bias:
-            self.in_proj_bias = Parameter(
-                torch.empty(3 * embed_dim, **factory_kwargs)
-            )
-        else:
-            self.register_parameter("in_proj_bias", None)
-        self.out_proj = NonDynamicallyQuantizableLinear(
-            embed_dim, embed_dim, bias=bias, **factory_kwargs
-        )
-
         if add_bias_kv:
             self.bias_k = Parameter(
                 torch.empty((1, 1, embed_dim), **factory_kwargs)
@@ -139,9 +112,65 @@ class MultiheadAttention(Module):
         else:
             self.bias_k = self.bias_v = None
 
-        self.add_zero_attn = add_zero_attn
+        if linear1_cls == Linear:
+            if not self._qkv_same_embed_dim:
+                self.q_proj_weight = Parameter(
+                    torch.empty((embed_dim, embed_dim), **factory_kwargs)
+                )
+                self.k_proj_weight = Parameter(
+                    torch.empty((embed_dim, self.kdim), **factory_kwargs)
+                )
+                self.v_proj_weight = Parameter(
+                    torch.empty((embed_dim, self.vdim), **factory_kwargs)
+                )
+                self.register_parameter("in_proj_weight", None)
+            else:
+                self.in_proj_weight = Parameter(
+                    torch.empty((3 * embed_dim, embed_dim), **factory_kwargs)
+                )
+                self.register_parameter("q_proj_weight", None)
+                self.register_parameter("k_proj_weight", None)
+                self.register_parameter("v_proj_weight", None)
 
-        self._reset_parameters()
+            if bias:
+                self.in_proj_bias = Parameter(
+                    torch.empty(3 * embed_dim, **factory_kwargs)
+                )
+            else:
+                self.register_parameter("in_proj_bias", None)
+            self.out_proj = NonDynamicallyQuantizableLinear(
+                embed_dim, embed_dim, bias=bias, **factory_kwargs
+            )
+
+            self._reset_parameters()
+        else:
+            if not self._qkv_same_embed_dim:
+                raise NotImplementedError
+            else:
+                self.in_proj_linear = linear1_cls(
+                    embed_dim, 3 * embed_dim, bias=bias, **factory_kwargs
+                )
+                self.in_proj_weight = self.in_proj_linear.weight
+
+                self.register_parameter("q_proj_weight", None)
+                self.register_parameter("k_proj_weight", None)
+                self.register_parameter("v_proj_weight", None)
+
+                if bias:
+                    self.in_proj_bias = self.in_proj_linear.bias
+                else:
+                    self.register_parameter("in_proj_bias", None)
+
+            self.out_proj = linear2_cls(
+                embed_dim, embed_dim, bias=bias, **factory_kwargs
+            )
+
+            if self.bias_k is not None:
+                xavier_normal_(self.bias_k)
+            if self.bias_v is not None:
+                xavier_normal_(self.bias_v)
+
+        self.add_zero_attn = add_zero_attn
 
     def _reset_parameters(self):
         if self._qkv_same_embed_dim:
@@ -154,6 +183,7 @@ class MultiheadAttention(Module):
         if self.in_proj_bias is not None:
             constant_(self.in_proj_bias, 0.0)
             constant_(self.out_proj.bias, 0.0)
+
         if self.bias_k is not None:
             xavier_normal_(self.bias_k)
         if self.bias_v is not None:

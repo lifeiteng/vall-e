@@ -6,14 +6,15 @@ We can train the VALL-E model on one GPU.
 
 ![model](./docs/images/Overview.jpg)
 
-## Inference: In-Context Learning via Prompting
-see [LibriTTS/Inference](https://github.com/lifeiteng/vall-e/blob/main/egs/libritts/README.md#inference)
-
-<img src="./docs/images/vallf.png" width="500" height="400">
-
 ## Demo
 
 * [official demo](https://valle-demo.github.io/)
+* [reproduced demo](https://lifeiteng.github.io/valle/index.html)
+
+<a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
+
+<img src="./docs/images/vallf.png" width="500" height="400">
+
 
 ## Broader impacts
 
@@ -21,24 +22,7 @@ see [LibriTTS/Inference](https://github.com/lifeiteng/vall-e/blob/main/egs/libri
 
 To avoid abuse, Well-trained models and services will not be provided.
 
-## Progress
-
-<a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
-
-- [x] Text and Audio Tokenizer
-- [x] Dataset module and loaders
-- [x] VALL-F: `seq-to-seq + PrefixLanguageModel`
-    - [x] AR Decoder
-    - [x] NonAR Decoder
-- [x] VALL-E: `PrefixLanguageModel`
-    - [x] AR Decoder
-    - [x] NonAR Decoder
-- [x] update README.zh-CN
-- [x] Training
-- [x] Inference: In-Context Learning via Prompting
-
-
-## Installation
+## Install Deps
 
 To get up and running quickly just follow the steps below:
 
@@ -49,12 +33,12 @@ pip install torchmetrics==0.11.1
 # fbank
 pip install librosa==0.8.1
 
-# phonemizer
+# phonemizer pypinyin
 apt-get install espeak-ng
 ## OSX: brew install espeak
-pip install phonemizer
+pip install phonemizer==3.2.1 pypinyin==0.48.0
 
-# lhotse
+# lhotse update to newest version
 # https://github.com/lhotse-speech/lhotse/pull/956
 # https://github.com/lhotse-speech/lhotse/pull/960
 pip uninstall lhotse
@@ -82,8 +66,64 @@ pip install -e .
 ```
 
 
-## Training
-* [egs/libritts/README.md](egs/libritts/README.md)
+## Training&Inference
+* #### English example [examples/libritts/README.md](egs/libritts/README.md)
+* #### Chinese example [examples/aishell1/README.md](egs/aishell1/README.md)
+* ### Prefix Mode 0 1 2 4 for NAR Decoder
+  **Paper Chapter 5.1** "The average length of the waveform in LibriLight is 60 seconds. During
+training, we randomly crop the waveform to a random length between 10 seconds and 20 seconds. For the NAR acoustic prompt tokens, we select a random segment waveform of 3 seconds from the same utterance."
+  * **0**: no acoustic prompt tokens
+  * **1**: random prefix of current batched utterances **(This is recommended)**
+  * **2**: random segment of current batched utterances
+  * **4**: same as the paper (As they randomly crop the long waveform to multiple utterances, so the same utterance means pre or post utterance in the same long waveform.)
+    ```
+    # If train NAR Decoders with prefix_mode 4
+    python3 bin/trainer.py --prefix_mode 4 --dataset libritts --input-strategy PromptedPrecomputedFeatures ...
+    ```
+
+#### [LibriTTS demo](https://lifeiteng.github.io/valle/index.html) Trained on one GPU with 24G memory
+
+```
+cd examples/libritts
+
+# step1 prepare dataset
+bash prepare.sh --stage -1 --stop-stage 3
+
+# step2 train the model on one GPU with 24GB memory
+exp_dir=exp/valle
+
+## Train AR model
+python3 bin/trainer.py --max-duration 80 --filter-min-duration 0.5 --filter-max-duration 14 --train-stage 1 \
+      --num-buckets 6 --dtype "bfloat16" --save-every-n 10000 --valid-interval 20000 \
+      --model-name valle --share-embedding true --norm-first true --add-prenet false \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+      --base-lr 0.05 --warmup-steps 200 --average-period 0 \
+      --num-epochs 20 --start-epoch 1 --start-batch 0 --accumulate-grad-steps 4 \
+      --exp-dir ${exp_dir}
+
+## Train NAR model
+cp ${exp_dir}/best-valid-loss.pt ${exp_dir}/epoch-2.pt  # --start-epoch 3=2+1
+python3 bin/trainer.py --max-duration 40 --filter-min-duration 0.5 --filter-max-duration 14 --train-stage 2 \
+      --num-buckets 6 --dtype "float32" --save-every-n 10000 --valid-interval 20000 \
+      --model-name valle --share-embedding true --norm-first true --add-prenet false \
+      --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 --prefix-mode 1 \
+      --base-lr 0.05 --warmup-steps 200 --average-period 0 \
+      --num-epochs 40 --start-epoch 3 --start-batch 0 --accumulate-grad-steps 4 \
+      --exp-dir ${exp_dir}
+
+# step3 inference
+python3 bin/infer.py --output-dir infer/demos \
+    --model-name valle --norm-first true --add-prenet false \
+    --share-embedding true --norm-first true --add-prenet false \
+    --text-prompts "KNOT one point one five miles per hour." \
+    --audio-prompts ./prompts/8463_294825_000043_000000.wav \
+    --text "To get up and running quickly just follow the steps below." \
+    --checkpoint=${exp_dir}/best-valid-loss.pt
+
+# Demo Inference
+https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/run.sh#L68
+```
+![train](./docs/images/train.png)
 
 #### Troubleshooting
 
@@ -95,11 +135,16 @@ pip install -e .
    sed -i 's/import tf/import tensorflow_stub as tf/g' $file
    ```
 
+#### Training on a custom dataset?
+* prepare the dataset to `lhotse manifests`
+  * There are plenty of references here [lhotse/recipes](https://github.com/lhotse-speech/lhotse/tree/master/lhotse/recipes)
+* `python3 bin/tokenizer.py ...`
+* `python3 bin/trainer.py ...`
+
 ## Contributing
 
 * Parallelize bin/tokenizer.py on multi-GPUs
 * <a href="https://www.buymeacoffee.com/feiteng" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" ></a>
-
 
 ## Citing
 

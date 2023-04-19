@@ -105,3 +105,5 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
     touch ${audio_feats_dir}/.aishell.train.done
   fi
 fi
+
+python3 ./bin/display_manifest_statistics.py --manifest-dir ${audio_feats_dir}
