@@ -635,7 +635,7 @@ def train_one_epoch(
     elif params.dtype in ["float16", "fp16"]:
         dtype, enabled = torch.float16, True
 
-    model_context = model.join isinstance(model, DDP) else nullcontext
+    model_context = model.join if isinstance(model, DDP) else nullcontext
     with model_context():
         batch_idx = 0
         while True:
