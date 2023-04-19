@@ -521,7 +521,6 @@ def compute_loss(
             y=audio_features,
             y_lens=audio_features_lens,
             train_stage=params.train_stage,
-            batch_idx_train=params.batch_idx_train,
         )
 
     assert loss.requires_grad == is_training
