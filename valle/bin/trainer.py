@@ -635,11 +635,7 @@ def train_one_epoch(
     elif params.dtype in ["float16", "fp16"]:
         dtype, enabled = torch.float16, True
 
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        model_context = model.join
-    else:
-        model_context = nullcontext
-
+    model_context = model.join isinstance(model, DDP) else nullcontext
     with model_context():
         batch_idx = 0
         while True:
@@ -647,10 +643,6 @@ def train_one_epoch(
                 batch = next(iter_dl)
             except StopIteration:
                 logging.info("Reaches end of dataloader.")
-                if params.batch_idx_train % params.accumulate_grad_steps:
-                    scaler.step(optimizer)
-                    scaler.update()
-                    optimizer.zero_grad()
                 break
 
             batch_idx += 1
