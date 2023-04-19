@@ -537,12 +537,15 @@ class VALLF(nn.Module):
             )
             # loss
             total_length = (y_lens).sum().type(torch.float32)
-            total_loss += F.cross_entropy(
-                logits,
-                targets,
-                ignore_index=NUM_AUDIO_TOKENS,
-                reduction=reduction,
-            ) * (total_length / (total_length - prefix_len * x.shape[0]))
+            total_loss += (
+                F.cross_entropy(
+                    logits,
+                    targets,
+                    ignore_index=NUM_AUDIO_TOKENS,
+                    reduction=reduction,
+                )
+                * (total_length / (total_length - prefix_len * x.shape[0]))
+            )
             metrics["NarTop10Accuracy"] = (
                 self.nar_accuracy_metric(
                     F.pad(
@@ -638,7 +641,9 @@ class VALLF(nn.Module):
                 or (y.shape[1] - prefix_len) > x_lens.max() * 16
             ):
                 if prompts.shape[1] == y.shape[1]:
-                    y = torch.concat([y, samples], dim=1)
+                    raise SyntaxError(
+                        "well trained model shouldn't reach here."
+                    )
 
                 print(f"VALL-F EOS [{prefix_len} -> {y.shape[1]}]")
                 break
@@ -1042,7 +1047,9 @@ class VALLE(VALLF):
                 or (y.shape[1] - prompts.shape[1]) > x_lens.max() * 16
             ):
                 if prompts.shape[1] == y.shape[1]:
-                    y = torch.concat([y, samples], dim=1)
+                    raise SyntaxError(
+                        "well trained model shouldn't reach here."
+                    )
 
                 print(f"VALL-E EOS [{prompts.shape[1]} -> {y.shape[1]}]")
                 break
