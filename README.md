@@ -155,7 +155,7 @@ To cite this repository:
   author={Feiteng Li},
   title={VALL-E: A neural codec language model},
   year={2023},
-  url={http://github.com/lifeiteng/valle}
+  url={http://github.com/lifeiteng/vall-e}
 }
 ```
 
