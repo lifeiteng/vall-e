@@ -542,7 +542,7 @@ class VALLF(nn.Module):
                 targets,
                 ignore_index=NUM_AUDIO_TOKENS,
                 reduction=reduction,
-            )
+            ) * (total_length / (total_length - prefix_len * x.shape[0]))
             metrics["NarTop10Accuracy"] = (
                 self.nar_accuracy_metric(
                     F.pad(
@@ -552,7 +552,7 @@ class VALLF(nn.Module):
                     ),
                     targets,
                 ).item()
-                * (total_length / (total_length - prefix_len * x.shape[0]))
+                * total_length
             )
 
         if train_stage == 0:
