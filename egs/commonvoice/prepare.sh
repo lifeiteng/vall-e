@@ -18,6 +18,8 @@ stop_stage=4
 #
 
 dl_dir=$PWD/download
+release=cv-corpus-13.0-2023-03-09
+lang=all
 
 dataset_parts="-p train -p dev -p test"  # debug
 
@@ -42,68 +44,68 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   log "dl_dir: $dl_dir"
   log "Stage 0: Download data"
 
-  # If you have pre-downloaded it to /path/to/aishell,
+  # If you have pre-downloaded it to /path/to/commonvoice,
   # you can create a symlink
   #
   #   ln -sfv /path/to/aishell $dl_dir/aishell
   #
-  if [ ! -d $dl_dir/aishell/dev ]; then
-    lhotse download aishell $dl_dir
+  if [ ! -d $dl_dir/$release/$lang/clips ]; then
+    lhotse download commonvoice --languages $lang --release $release $dl_dir
   fi
 fi
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
-  log "Stage 1: Prepare aishell manifest"
-  # We assume that you have downloaded the aishell corpus
-  # to $dl_dir/aishell
+  log "Stage 1: Prepare commonvoice manifest"
+  # We assume that you have downloaded the commonvoice corpus
+  # to $dl_dir/commonvoice
   mkdir -p data/manifests
-  if [ ! -e data/manifests/.aishell.done ]; then
-    lhotse prepare aishell $dl_dir/aishell data/manifests
-    touch data/manifests/.aishell.done
+  if [ ! -e data/manifests/.commonvoice.done ]; then
+    lhotse prepare commonvoice -j $nj $dl_dir/$release data/manifests
+    touch data/manifests/.commonvoice.done
   fi
 fi
 
 
-if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
-  log "Stage 2: Tokenize/Fbank aishell"
-  mkdir -p ${audio_feats_dir}
-  if [ ! -e ${audio_feats_dir}/.aishell.tokenize.done ]; then
-    python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
-        --text-extractor ${text_extractor} \
-        --audio-extractor ${audio_extractor} \
-        --batch-duration 400 \
-        --prefix "aishell" \
-        --src-dir "data/manifests" \
-        --output-dir "${audio_feats_dir}"
-  fi
-  touch ${audio_feats_dir}/.aishell.tokenize.done
-fi
-
-if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
-  log "Stage 3: Prepare aishell train/dev/test"
-  if [ ! -e ${audio_feats_dir}/.aishell.train.done ]; then
-    # dev 14326
-    lhotse subset --first 400 \
-        ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
-        ${audio_feats_dir}/cuts_dev.jsonl.gz
-
-    lhotse subset --last 13926 \
-        ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
-        ${audio_feats_dir}/cuts_dev_others.jsonl.gz
-
-    # train
-    lhotse combine \
-        ${audio_feats_dir}/cuts_dev_others.jsonl.gz \
-        ${audio_feats_dir}/aishell_cuts_train.jsonl.gz \
-        ${audio_feats_dir}/cuts_train.jsonl.gz
-
-    # test
-    lhotse copy \
-      ${audio_feats_dir}/aishell_cuts_test.jsonl.gz \
-      ${audio_feats_dir}/cuts_test.jsonl.gz
-
-    touch ${audio_feats_dir}/.aishell.train.done
-  fi
-fi
-
-python3 ./bin/display_manifest_statistics.py --manifest-dir ${audio_feats_dir}
+#if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
+#  log "Stage 2: Tokenize/Fbank aishell"
+#  mkdir -p ${audio_feats_dir}
+#  if [ ! -e ${audio_feats_dir}/.aishell.tokenize.done ]; then
+#    python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
+#        --text-extractor ${text_extractor} \
+#        --audio-extractor ${audio_extractor} \
+#        --batch-duration 400 \
+#        --prefix "aishell" \
+#        --src-dir "data/manifests" \
+#        --output-dir "${audio_feats_dir}"
+#  fi
+#  touch ${audio_feats_dir}/.aishell.tokenize.done
+#fi
+#
+#if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
+#  log "Stage 3: Prepare aishell train/dev/test"
+#  if [ ! -e ${audio_feats_dir}/.aishell.train.done ]; then
+#    # dev 14326
+#    lhotse subset --first 400 \
+#        ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
+#        ${audio_feats_dir}/cuts_dev.jsonl.gz
+#
+#    lhotse subset --last 13926 \
+#        ${audio_feats_dir}/aishell_cuts_dev.jsonl.gz \
+#        ${audio_feats_dir}/cuts_dev_others.jsonl.gz
+#
+#    # train
+#    lhotse combine \
+#        ${audio_feats_dir}/cuts_dev_others.jsonl.gz \
+#        ${audio_feats_dir}/aishell_cuts_train.jsonl.gz \
+#        ${audio_feats_dir}/cuts_train.jsonl.gz
+#
+#    # test
+#    lhotse copy \
+#      ${audio_feats_dir}/aishell_cuts_test.jsonl.gz \
+#      ${audio_feats_dir}/cuts_test.jsonl.gz
+#
+#    touch ${audio_feats_dir}/.aishell.train.done
+#  fi
+#fi
+#
+#python3 ./bin/display_manifest_statistics.py --manifest-dir ${audio_feats_dir}
