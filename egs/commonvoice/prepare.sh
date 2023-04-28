@@ -19,7 +19,7 @@ stop_stage=4
 
 dl_dir=$PWD/download
 release=cv-corpus-13.0-2023-03-09
-lang="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK cs pl uk ja"
+languages="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK cs pl uk ja"
 
 dataset_parts="-p train -p dev -p test"  # debug
 
@@ -47,11 +47,14 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   # If you have pre-downloaded it to /path/to/commonvoice,
   # you can create a symlink
   #
-  #   ln -sfv /path/to/aishell $dl_dir/aishell
+  #   ln -sfv /path/to/commonvoice $dl_dir/commonvoice
   #
-  if [ ! -d $dl_dir/$release/$lang/clips ]; then
-    lhotse download commonvoice --languages $lang --release $release $dl_dir
-  fi
+  for lang in $languages
+  do
+    if [ ! -d $dl_dir/$release/$lang/clips ]; then
+      lhotse download commonvoice --languages $lang --release $release $dl_dir
+    fi
+  done
 fi
 
 if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
@@ -60,7 +63,13 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
   # to $dl_dir/commonvoice
   mkdir -p data/manifests
   if [ ! -e data/manifests/.commonvoice.done ]; then
-    lhotse prepare commonvoice --languages $lang -j $nj $dl_dir/$release data/manifests
+    for lang in $languages
+    do
+      if [ ! -e data/manifests/.commonvoice-${lang}.done ]; then
+        lhotse prepare commonvoice --language $lang -j $nj $dl_dir/$release data/manifests
+        touch data/manifests/.commonvoice-${lang}.done
+      fi
+    done
     touch data/manifests/.commonvoice.done
   fi
 fi
