@@ -94,7 +94,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
       dynamicPartList+="${lang}_${part} "
     done
   done
-  echo "${dynamicPartList}"
+  # echo "${dynamicPartList}" # debug
 
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.commonvoice.tokenize.done ]; then
