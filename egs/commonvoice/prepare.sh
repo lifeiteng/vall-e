@@ -84,9 +84,21 @@ fi
 
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   log "Stage 2: Tokenize/Fbank commonvoice"
+
+  # Build all Parts for all the commonvoice datasets
+  dynamicPartList=""
+  for lang in $languages
+  do
+    for part in $dataset_parts
+    do
+      dynamicPartList+="${lang}_${part} "
+    done
+  done
+  echo "${dynamicPartList}"
+
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.commonvoice.tokenize.done ]; then
-    python3 bin/tokenizer.py --dataset-parts "${dataset_parts}" \
+    python3 bin/tokenizer.py --dataset-parts "${dynamicPartList}" \
         --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
         --batch-duration 400 \
