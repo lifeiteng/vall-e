@@ -19,7 +19,7 @@ stop_stage=4
 
 dl_dir=$PWD/download
 release=cv-corpus-13.0-2023-03-09
-lang="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK cs pl uk jp"
+lang="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK cs pl uk ja"
 
 dataset_parts="-p train -p dev -p test"  # debug
 
