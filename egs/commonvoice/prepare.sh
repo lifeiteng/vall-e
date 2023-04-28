@@ -21,7 +21,7 @@ dl_dir=$PWD/download
 release=cv-corpus-13.0-2023-03-09
 languages="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK cs pl uk ja"
 
-dataset_parts="-p train -p dev -p test"  # debug
+dataset_parts="train dev test"
 
 text_extractor="pypinyin_initials_finals"
 audio_extractor="Encodec"  # or Fbank
@@ -70,6 +70,12 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
         lhotse prepare commonvoice --language $lang -j $nj $dl_dir/$release data/manifests
         touch data/manifests/.commonvoice-${lang}.done
       fi
+      # Rename to match Tokenizer Pattern
+      for part in $dataset_parts
+      do
+        mv data/manifests/cv-${lang}_recordings_${part}.jsonl.gz data/manifests/commonvoice_recordings_${lang}_${part}.jsonl.gz
+        mv data/manifests/cv-${lang}_supervisions_${part}.jsonl.gz data/manifests/commonvoice_supervisions_${lang}_${part}.jsonl.gz
+      done
     done
     touch data/manifests/.commonvoice.done
   fi
@@ -84,6 +90,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
         --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
         --batch-duration 400 \
+        --prefix "commonvoice" \
         --src-dir "data/manifests" \
         --output-dir "${audio_feats_dir}"
   fi
