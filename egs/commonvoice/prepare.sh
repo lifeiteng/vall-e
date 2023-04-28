@@ -51,6 +51,7 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
   #
   for lang in $languages
   do
+    log "Checking if language ${lang} has been downloaded..."
     if [ ! -d $dl_dir/$release/$lang/clips ]; then
       lhotse download commonvoice --languages $lang --release $release $dl_dir
     fi
