@@ -23,7 +23,6 @@ languages="en de fr cy tt kab ca zh-TW it fa eu es ru tr nl eo zh-CN rw pt zh-HK
 
 dataset_parts="train dev test"
 
-text_extractor="pypinyin_initials_finals"
 audio_extractor="Encodec"  # or Fbank
 audio_feats_dir=data/tokenized
 
@@ -99,7 +98,6 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
   mkdir -p ${audio_feats_dir}
   if [ ! -e ${audio_feats_dir}/.commonvoice.tokenize.done ]; then
     python3 bin/tokenizer.py --dataset-parts "${dynamicPartList}" \
-        --text-extractor ${text_extractor} \
         --audio-extractor ${audio_extractor} \
         --batch-duration 400 \
         --prefix "commonvoice" \

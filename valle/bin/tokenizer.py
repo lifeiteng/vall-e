@@ -233,8 +233,7 @@ def main():
                                 text_tokenizer, text=c.supervisions[0].text
                             )
                             c.supervisions[0].custom = {}
-                        else:
-                            assert args.prefix == "libritts"
+                        else:  # libritts, commonvoice
                             phonemes = tokenize_text(
                                 text_tokenizer, text=c.supervisions[0].text
                             )
