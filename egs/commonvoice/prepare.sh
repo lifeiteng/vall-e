@@ -110,25 +110,25 @@ fi
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare commonvoice train/dev/test"
   if [ ! -e ${audio_feats_dir}/.commonvoice.train.done ]; then
-    # dev 14326
-    lhotse subset --first 400 \
-        ${audio_feats_dir}/commonvoice_cuts_dev.jsonl.gz \
-        ${audio_feats_dir}/cuts_dev.jsonl.gz
 
-    lhotse subset --last 13926 \
-        ${audio_feats_dir}/commonvoice_cuts_dev.jsonl.gz \
-        ${audio_feats_dir}/cuts_dev_others.jsonl.gz
+    # Build all Parts for all the commonvoice datasets
+    cutsTrainList=""
+    cutsDevList=""
+    cutsTestList=""
+    for lang in $languages
+    do
+      cutsTrainList+="${audio_feats_dir}/commonvoice_cuts_${lang}_train.jsonl.gz "
+      cutsDevList+="${audio_feats_dir}/commonvoice_cuts_${lang}_dev.jsonl.gz "
+      cutsTestList+="${audio_feats_dir}/commonvoice_cuts_${lang}_test.jsonl.gz "
+    done
+    # echo "${cutsTrainList}" # debug
+    # echo "${cutsDevList}" # debug
+    # echo "${cutsTestList}" # debug
 
-    # train
-    lhotse combine \
-        ${audio_feats_dir}/cuts_dev_others.jsonl.gz \
-        ${audio_feats_dir}/commonvoice_cuts_train.jsonl.gz \
-        ${audio_feats_dir}/cuts_train.jsonl.gz
-
-    # test
-    lhotse copy \
-      ${audio_feats_dir}/commonvoice_cuts_test.jsonl.gz \
-      ${audio_feats_dir}/cuts_test.jsonl.gz
+    # Combine all datasets
+    lhotse combine ${cutsTrainList} ${audio_feats_dir}/cuts_train.jsonl.gz
+    lhotse combine ${cutsDevList} ${audio_feats_dir}/cuts_dev.jsonl.gz
+    lhotse combine ${cutsTestList} ${audio_feats_dir}/cuts_test.jsonl.gz
 
     touch ${audio_feats_dir}/.commonvoice.train.done
   fi
