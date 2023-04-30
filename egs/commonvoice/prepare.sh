@@ -111,6 +111,19 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
   log "Stage 3: Prepare commonvoice train/dev/test"
   if [ ! -e ${audio_feats_dir}/.commonvoice.train.done ]; then
 
+    # Due to sheer size of the dev and train sets for the individual languages
+    # we need to only take small subsets from each language so we're able to calculate validation loss
+    for lang in $languages
+    do
+      lhotse subset --first 400 \
+        ${audio_feats_dir}/commonvoice_cuts_${lang}_dev.jsonl.gz \
+        ${audio_feats_dir}/commonvoice_cuts_${lang}_dev_subset.jsonl.gz
+
+      lhotse subset --first 400 \
+        ${audio_feats_dir}/commonvoice_cuts_${lang}_test.jsonl.gz \
+        ${audio_feats_dir}/commonvoice_cuts_${lang}_test_subset.jsonl.gz
+    done
+
     # Build all Parts for all the commonvoice datasets
     cutsTrainList=""
     cutsDevList=""
@@ -118,8 +131,8 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
     for lang in $languages
     do
       cutsTrainList+="${audio_feats_dir}/commonvoice_cuts_${lang}_train.jsonl.gz "
-      cutsDevList+="${audio_feats_dir}/commonvoice_cuts_${lang}_dev.jsonl.gz "
-      cutsTestList+="${audio_feats_dir}/commonvoice_cuts_${lang}_test.jsonl.gz "
+      cutsDevList+="${audio_feats_dir}/commonvoice_cuts_${lang}_dev_subset.jsonl.gz "
+      cutsTestList+="${audio_feats_dir}/commonvoice_cuts_${lang}_test_subset.jsonl.gz "
     done
     # echo "${cutsTrainList}" # debug
     # echo "${cutsDevList}" # debug
