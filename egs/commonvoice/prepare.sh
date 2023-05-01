@@ -13,8 +13,8 @@ stop_stage=4
 # directories and files. If not, they will be downloaded
 # by this script automatically.
 #
-#  - $dl_dir/aishell
-#      You can download aishell from https://www.openslr.org/33/
+#  - $dl_dir/commonvoice
+#      You can download commonvoice from https://commonvoice.mozilla.org/
 #
 
 dl_dir=$PWD/download
