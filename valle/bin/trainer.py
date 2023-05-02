@@ -692,8 +692,9 @@ def train_one_epoch(
 
                 set_batch_count(model, params.batch_idx_train)
             except:  # noqa
+                logging.warning(f"Hit a broken batch of training data. Cut ID: {batch['utt_id']} Text: {batch['text']} - Skipping...")
                 display_and_save_batch(batch, params=params)
-                raise
+                continue
 
             if params.average_period > 0:
                 if (
