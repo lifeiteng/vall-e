@@ -1102,6 +1102,10 @@ def scan_pessimistic_batches_for_oom(
     elif params.dtype in ["float16", "fp16"]:
         dtype = torch.float16
 
+    scaler = GradScaler(
+        enabled=(params.dtype in ["fp16", "float16"]), init_scale=1.0
+    )
+
     for criterion, cuts in batches.items():
         batch = train_dl.dataset[cuts]
         try:
@@ -1112,7 +1116,7 @@ def scan_pessimistic_batches_for_oom(
                     batch=batch,
                     is_training=True,
                 )
-            loss.backward()
+            scaler.scale(loss).backward()
             optimizer.zero_grad()
         except Exception as e:
             if "CUDA out of memory" in str(e):
