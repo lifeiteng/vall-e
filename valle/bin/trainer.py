@@ -701,8 +701,11 @@ def train_one_epoch(
                 del batch["audio_features"]
                 del batch["audio_features_lens"]
                 del batch
-                del loss
-                del loss_info
+                try:
+                    del loss
+                    del loss_info
+                except UnboundLocalError:
+                    pass
                 torch.cuda.empty_cache()
                 # Continue training
                 continue
