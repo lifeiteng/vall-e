@@ -23,7 +23,6 @@ python3 bin/trainer.py \
     --decoder-dim 1024 --nhead 16 --num-decoder-layers 12 \
     --max-duration 40 --model-name valle \
     --exp-dir exp/valle
-    --dtype "bfloat16" \
 """
 
 import argparse
@@ -41,7 +40,6 @@ from shutil import copyfile
 from typing import Any, Dict, Optional, Tuple, Union
 
 import torch
-import torch.multiprocessing as mp
 import torch.nn as nn
 from icefall.checkpoint import load_checkpoint, remove_checkpoints
 from icefall.checkpoint import save_checkpoint as save_checkpoint_impl
@@ -49,7 +47,6 @@ from icefall.checkpoint import (
     save_checkpoint_with_global_batch_idx,
     update_averaged_model,
 )
-from icefall.dist import cleanup_dist, setup_dist
 from icefall.env import get_env_info
 from icefall.hooks import register_inf_check_hooks
 from icefall.utils import AttributeDict, MetricsTracker, setup_logger, str2bool
@@ -59,8 +56,9 @@ from lhotse.dataset.sampling.base import CutSampler
 from lhotse.utils import fix_random_seed
 from torch import Tensor
 from torch.cuda.amp import GradScaler
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
+
+from accelerate import Accelerator
 
 from valle.data import TtsDataModule
 from valle.models import add_model_arguments, get_model
@@ -70,10 +68,9 @@ from valle.modules.scheduler import get_scheduler
 LRSchedulerType = torch.optim.lr_scheduler._LRScheduler
 
 
-def set_batch_count(model: Union[nn.Module, DDP], batch_count: float) -> None:
-    if isinstance(model, DDP):
-        # get underlying nn.Module
-        model = model.module
+def set_batch_count(accelerator: Accelerator, model: nn.Module, batch_count: float) -> None:
+    # Unwrap Model
+    model = accelerator.unwrap_model(model)
 
     for module in model.modules():
         if hasattr(module, "batch_count"):
@@ -86,17 +83,10 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--world-size",
-        type=int,
-        default=1,
-        help="Number of GPUs for DDP training.",
-    )
-
-    parser.add_argument(
-        "--master-port",
-        type=int,
-        default=12354,
-        help="Master port to use for DDP training.",
+        "--print-model",
+        type=str2bool,
+        default=False,
+        help="Prints the details of the model to the console.",
     )
 
     parser.add_argument(
@@ -231,13 +221,6 @@ def get_parser():
     )
 
     parser.add_argument(
-        "--dtype",
-        type=str,
-        default="float32",
-        help="Training dtype: float32 bfloat16 float16.",
-    )
-
-    parser.add_argument(
         "--filter-min-duration",
         type=float,
         default=0.0,
@@ -362,9 +345,6 @@ def load_checkpoint_if_available(
 
     assert filename.is_file(), f"{filename} does not exist!"
 
-    if isinstance(model, DDP):
-        raise ValueError("load_checkpoint before DDP")
-
     saved_params = load_checkpoint(
         filename,
         model=model,
@@ -427,14 +407,14 @@ def load_checkpoint_if_available(
 
 
 def save_checkpoint(
+    accelerator: Accelerator,
     params: AttributeDict,
-    model: Union[nn.Module, DDP],
+    model: nn.Module,
     model_avg: Optional[nn.Module] = None,
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[LRSchedulerType] = None,
     sampler: Optional[CutSampler] = None,
     scaler: Optional[GradScaler] = None,
-    rank: int = 0,
 ) -> None:
     """Save model, optimizer, scheduler and training stats to file.
 
@@ -452,8 +432,10 @@ def save_checkpoint(
       scaler:
         The scaler used for mix precision training.
     """
-    if rank != 0:
-        return
+
+    # Unwrap Model if wrapped
+    model = accelerator.unwrap_model(model)
+
     filename = params.exp_dir / f"epoch-{params.cur_epoch}.pt"
     save_checkpoint_impl(
         filename=filename,
@@ -464,7 +446,6 @@ def save_checkpoint(
         scheduler=scheduler,
         sampler=sampler,
         scaler=scaler,
-        rank=rank,
     )
 
     if params.best_train_epoch == params.cur_epoch:
@@ -477,8 +458,9 @@ def save_checkpoint(
 
 
 def compute_loss(
+    accelerator: Accelerator,
     params: AttributeDict,
-    model: Union[nn.Module, DDP],
+    model: nn.Module,
     batch: dict,
     is_training: bool,
 ) -> Tuple[Tensor, MetricsTracker]:
@@ -500,11 +482,7 @@ def compute_loss(
      warmup: a floating point value which increases throughout training;
         values >= 1.0 are fully warmed up and have all modules present.
     """
-    device = (
-        model.device
-        if isinstance(model, DDP)
-        else next(model.parameters()).device
-    )
+    device = accelerator.device
     # at entry, TextTokens is (N, P)
     text_tokens = batch["text_tokens"].to(device)
     text_tokens_lens = batch["text_tokens_lens"].to(device)
@@ -541,10 +519,10 @@ def compute_loss(
 
 
 def compute_validation_loss(
+    accelerator: Accelerator,
     params: AttributeDict,
-    model: Union[nn.Module, DDP],
+    model: nn.Module,
     valid_dl: torch.utils.data.DataLoader,
-    world_size: int = 1,
 ) -> MetricsTracker:
     """Run the validation process."""
     model.eval()
@@ -552,6 +530,7 @@ def compute_validation_loss(
 
     for batch_idx, batch in enumerate(valid_dl):
         predicts, loss, loss_info = compute_loss(
+            accelerator=accelerator,
             params=params,
             model=model,
             batch=batch,
@@ -560,8 +539,6 @@ def compute_validation_loss(
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
-    if world_size > 1:
-        tot_loss.reduce(loss.device)
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     if loss_value < params.best_valid_loss:
@@ -579,8 +556,9 @@ def compute_validation_loss(
 
 
 def train_one_epoch(
+    accelerator: Accelerator,
     params: AttributeDict,
-    model: Union[nn.Module, DDP],
+    model: nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: LRSchedulerType,
     train_dl: torch.utils.data.DataLoader,
@@ -619,197 +597,197 @@ def train_one_epoch(
         The stored model averaged from the start of training.
       tb_writer:
         Writer to write log messages to tensorboard.
-      world_size:
-        Number of nodes in DDP training. If it is 1, DDP is disabled.
-      rank:
-        The rank of the node in DDP training. If no DDP is used, it should
-        be set to 0.
     """
     model.train()
     tot_loss = MetricsTracker()
     iter_dl = iter(train_dl)
 
-    dtype, enabled = torch.float32, False
-    if params.dtype in ["bfloat16", "bf16"]:
-        dtype, enabled = torch.bfloat16, True
-    elif params.dtype in ["float16", "fp16"]:
-        dtype, enabled = torch.float16, True
+    batch_idx = 0
+    while True:
+        try:
+            batch = next(iter_dl)
+        except StopIteration:
+            logging.info("Reaches end of dataloader.")
+            break
 
-    model_context = model.join if isinstance(model, DDP) else nullcontext
-    with model_context():
-        batch_idx = 0
-        while True:
-            try:
-                batch = next(iter_dl)
-            except StopIteration:
-                logging.info("Reaches end of dataloader.")
-                break
+        batch_idx += 1
 
-            batch_idx += 1
+        params.batch_idx_train += 1
+        batch_size = len(batch["text"])
 
-            params.batch_idx_train += 1
-            batch_size = len(batch["text"])
+        try:
+            with accelerator.autocast():
+                _, loss, loss_info = compute_loss(
+                    accelerator=accelerator,
+                    params=params,
+                    model=model,
+                    batch=batch,
+                    is_training=True,
+                )
+            # summary stats
+            tot_loss = (
+                tot_loss * (1 - 1 / params.reset_interval)
+            ) + loss_info * (1 / params.reset_interval)
 
-            try:
-                with torch.cuda.amp.autocast(dtype=dtype, enabled=enabled):
-                    _, loss, loss_info = compute_loss(
-                        params=params,
-                        model=model,
-                        batch=batch,
-                        is_training=True,
-                    )
-                # summary stats
-                tot_loss = (
-                    tot_loss * (1 - 1 / params.reset_interval)
-                ) + loss_info * (1 / params.reset_interval)
+            # NOTE: We use reduction==sum and loss is computed over utterances
+            # in the batch and there is no normalization to it so far.
 
-                # NOTE: We use reduction==sum and loss is computed over utterances
-                # in the batch and there is no normalization to it so far.
-
-                scaler.scale(loss).backward()
-                if params.batch_idx_train >= params.accumulate_grad_steps:
-                    if (
-                        params.batch_idx_train % params.accumulate_grad_steps
-                        == 0
-                    ):
-                        if params.optimizer_name not in ["ScaledAdam", "Eve"]:
-                            # Unscales the gradients of optimizer's assigned params in-place
-                            scaler.unscale_(optimizer)
-                            # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
-                            torch.nn.utils.clip_grad_norm_(
-                                model.parameters(), 1.0
-                            )
-
-                        scaler.step(optimizer)
-                        scaler.update()
-                        optimizer.zero_grad()
-
-                        for k in range(params.accumulate_grad_steps):
-                            if isinstance(scheduler, Eden):
-                                scheduler.step_batch(params.batch_idx_train)
-                            else:
-                                scheduler.step()
-
-                set_batch_count(model, params.batch_idx_train)
-            except:  # noqa
-                display_and_save_batch(batch, params=params)
-                raise
-
-            if params.average_period > 0:
+            accelerator.backward(scaler.scale(loss))
+            if params.batch_idx_train >= params.accumulate_grad_steps:
                 if (
-                    rank == 0
-                    and params.batch_idx_train > 0
-                    and params.batch_idx_train % params.average_period == 0
+                    params.batch_idx_train % params.accumulate_grad_steps
+                    == 0
                 ):
+                    if params.optimizer_name not in ["ScaledAdam", "Eve"]:
+                        # Unscales the gradients of optimizer's assigned params in-place
+                        scaler.unscale_(optimizer)
+                        # Since the gradients of optimizer's assigned params are unscaled, clips as usual:
+                        accelerator.clip_grad_norm_(
+                            model.parameters(), 1.0
+                        )
+
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad()
+
+                    for k in range(params.accumulate_grad_steps):
+                        if isinstance(scheduler, Eden):
+                            scheduler.step_batch(params.batch_idx_train)
+                        else:
+                            scheduler.step()
+
+            set_batch_count(accelerator, model, params.batch_idx_train)
+        except:  # noqa
+            display_and_save_batch(batch, params=params)
+            raise
+
+        if (
+            params.average_period > 0
+            and params.batch_idx_train > 0
+            and params.batch_idx_train % params.average_period == 0
+        ):
+            accelerator.wait_for_everyone()
+            with accelerator.local_main_process_first():
+                if accelerator.is_local_main_process:
+                    # Unwrap Model
+                    _model = accelerator.unwrap_model(model)
                     update_averaged_model(
                         params=params,
-                        model_cur=model,
+                        model_cur=_model,
                         model_avg=model_avg,
                     )
 
-            if (
-                params.batch_idx_train > 0
-                and params.batch_idx_train % params.save_every_n == 0
+        if (
+            params.batch_idx_train > 0
+            and params.batch_idx_train % params.save_every_n == 0
+        ):
+            accelerator.wait_for_everyone()
+            with accelerator.local_main_process_first():
+                if accelerator.is_local_main_process:
+                    # Unwrap Model
+                    _model = accelerator.unwrap_model(model)
+                    save_checkpoint_with_global_batch_idx(
+                        out_dir=params.exp_dir,
+                        global_batch_idx=params.batch_idx_train,
+                        model=_model,
+                        model_avg=model_avg,
+                        params=params,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        sampler=train_dl.sampler,
+                        scaler=scaler,
+                    )
+                    remove_checkpoints(
+                        out_dir=params.exp_dir,
+                        topk=params.keep_last_k,
+                    )
+
+        if batch_idx % 100 == 0 and accelerator.use_fp16:
+            # If the grad scale was less than 1, try increasing it.    The _growth_interval
+            # of the grad scaler is configurable, but we can't configure it to have different
+            # behavior depending on the current grad scale.
+            cur_grad_scale = scaler._scale.item()
+            if cur_grad_scale < 1.0 or (
+                cur_grad_scale < 8.0 and batch_idx % 400 == 0
             ):
-                save_checkpoint_with_global_batch_idx(
-                    out_dir=params.exp_dir,
-                    global_batch_idx=params.batch_idx_train,
-                    model=model,
-                    model_avg=model_avg,
-                    params=params,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    sampler=train_dl.sampler,
-                    scaler=scaler,
-                    rank=rank,
-                )
-                remove_checkpoints(
-                    out_dir=params.exp_dir,
-                    topk=params.keep_last_k,
-                    rank=rank,
+                scaler.update(cur_grad_scale * 2.0)
+
+            if cur_grad_scale < 0.01:
+                logging.warning(f"Grad scale is small: {cur_grad_scale}")
+            if cur_grad_scale < 1.0e-05:
+                raise RuntimeError(
+                    f"grad_scale is too small, exiting: {cur_grad_scale}"
                 )
 
-            if batch_idx % 100 == 0 and params.dtype in ["float16", "fp16"]:
-                # If the grad scale was less than 1, try increasing it.    The _growth_interval
-                # of the grad scaler is configurable, but we can't configure it to have different
-                # behavior depending on the current grad scale.
-                cur_grad_scale = scaler._scale.item()
-                if cur_grad_scale < 1.0 or (
-                    cur_grad_scale < 8.0 and batch_idx % 400 == 0
-                ):
-                    scaler.update(cur_grad_scale * 2.0)
+        if batch_idx % params.log_interval == 0:
+            cur_lr = scheduler.get_last_lr()[0]
+            cur_grad_scale = (
+                scaler._scale.item()
+                if accelerator.use_fp16
+                else 1.0
+            )
 
-                if cur_grad_scale < 0.01:
-                    logging.warning(f"Grad scale is small: {cur_grad_scale}")
-                if cur_grad_scale < 1.0e-05:
-                    raise RuntimeError(
-                        f"grad_scale is too small, exiting: {cur_grad_scale}"
-                    )
-
-            if batch_idx % params.log_interval == 0:
-                cur_lr = scheduler.get_last_lr()[0]
-                cur_grad_scale = (
-                    scaler._scale.item()
-                    if params.dtype in ["float16", "fp16"]
-                    else 1.0
+            logging.info(
+                f"Epoch {params.cur_epoch}, "
+                f"batch {batch_idx}, train_loss[{loss_info}], "
+                f"tot_loss[{tot_loss}], "
+                f"batch size: {batch_size}, "
+                f"lr: {cur_lr:.2e}"
+                + (
+                    f", grad_scale: {cur_grad_scale}"
+                    if accelerator.use_fp16
+                    else ""
                 )
+            )
 
-                logging.info(
-                    f"Epoch {params.cur_epoch}, "
-                    f"batch {batch_idx}, train_loss[{loss_info}], "
-                    f"tot_loss[{tot_loss}], "
-                    f"batch size: {batch_size}, "
-                    f"lr: {cur_lr:.2e}"
-                    + (
-                        f", grad_scale: {cur_grad_scale}"
-                        if params.dtype in ["float16", "fp16"]
-                        else ""
-                    )
+            if tb_writer is not None:
+                tb_writer.add_scalar(
+                    "train/learning_rate", cur_lr, params.batch_idx_train
                 )
-
-                if tb_writer is not None:
+                loss_info.write_summary(
+                    tb_writer,
+                    "train/current_",
+                    params.batch_idx_train,
+                )
+                tot_loss.write_summary(
+                    tb_writer, "train/tot_", params.batch_idx_train
+                )
+                tot_loss.write_summary(
+                    tb_writer, "train/tot_", params.batch_idx_train
+                )
+                if accelerator.use_fp16:
                     tb_writer.add_scalar(
-                        "train/learning_rate", cur_lr, params.batch_idx_train
-                    )
-                    loss_info.write_summary(
-                        tb_writer,
-                        "train/current_",
+                        "train/grad_scale",
+                        cur_grad_scale,
                         params.batch_idx_train,
                     )
-                    tot_loss.write_summary(
-                        tb_writer, "train/tot_", params.batch_idx_train
-                    )
-                    tot_loss.write_summary(
-                        tb_writer, "train/tot_", params.batch_idx_train
-                    )
-                    if params.dtype in ["float16", "fp16"]:
-                        tb_writer.add_scalar(
-                            "train/grad_scale",
-                            cur_grad_scale,
-                            params.batch_idx_train,
+
+        if params.batch_idx_train % params.valid_interval == 0:
+            accelerator.wait_for_everyone()
+            with accelerator.local_main_process_first():
+                if accelerator.is_local_main_process:
+                    # Unwrap Model
+                    _model = accelerator.unwrap_model(model)
+                    logging.info("Computing validation loss")
+                    with accelerator.autocast():
+                        valid_info = compute_validation_loss(
+                            accelerator=accelerator,
+                            params=params,
+                            model=_model,
+                            valid_dl=valid_dl,
                         )
-
-            if params.batch_idx_train % params.valid_interval == 0:
-                logging.info("Computing validation loss")
-                with torch.cuda.amp.autocast(dtype=dtype):
-                    valid_info = compute_validation_loss(
-                        params=params,
-                        model=model,
-                        valid_dl=valid_dl,
-                        world_size=world_size,
+                    _model.train()
+                    logging.info(
+                        f"Epoch {params.cur_epoch}, validation: {valid_info}"
                     )
-                model.train()
-                logging.info(
-                    f"Epoch {params.cur_epoch}, validation: {valid_info}"
-                )
-                logging.info(
-                    f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-                )
-
-                if tb_writer is not None:
-                    valid_info.write_summary(
-                        tb_writer, "train/valid_", params.batch_idx_train
+                    logging.info(
+                        f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
                     )
+
+                    if tb_writer is not None:
+                        valid_info.write_summary(
+                            tb_writer, "train/valid_", params.batch_idx_train
+                        )
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
@@ -835,15 +813,9 @@ def filter_short_and_long_utterances(
     return cuts
 
 
-def run(rank, world_size, args):
+def run(args):
     """
     Args:
-      rank:
-        It is a value between 0 and `world_size-1`, which is
-        passed automatically by `mp.spawn()` in :func:`main`.
-        The node with rank 0 is responsible for saving checkpoint.
-      world_size:
-        Number of GPUs for DDP training.
       args:
         The return value of get_parser().parse_args()
     """
@@ -852,13 +824,17 @@ def run(rank, world_size, args):
 
     fix_random_seed(params.seed)
     rng = random.Random(params.seed)
-    if world_size > 1:
-        setup_dist(rank, world_size, params.master_port)
+
+    # Initialize Accelerator
+    accelerator = Accelerator()
+
+    if accelerator.is_local_main_process:
+        print("Accelerator process count: {0}".format(accelerator.num_processes))
 
     setup_logger(f"{params.exp_dir}/log/log-train")
     logging.info("Training started")
 
-    if args.tensorboard and rank == 0:
+    if args.tensorboard and accelerator.is_local_main_process:
         if params.train_stage:
             tb_writer = SummaryWriter(
                 log_dir=f"{params.exp_dir}/tensorboard_stage{params.train_stage}"
@@ -868,9 +844,8 @@ def run(rank, world_size, args):
     else:
         tb_writer = None
 
-    device = torch.device("cpu")
+    device = accelerator.device
     if torch.cuda.is_available():
-        device = torch.device("cuda", rank)
         # https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         torch.backends.cudnn.allow_tf32 = True
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -880,43 +855,39 @@ def run(rank, world_size, args):
 
     logging.info("About to create model")
     model = get_model(params)
-    with open(f"{params.exp_dir}/model.txt", "w") as f:
-        print(model)
-        print(model, file=f)
+
+    if params.print_model:
+        with open(f"{params.exp_dir}/model.txt", "w") as f:
+            print(model)
+            print(model, file=f)
 
     num_param = sum([p.numel() for p in model.parameters()])
     logging.info(f"Number of model parameters: {num_param}")
 
     assert params.save_every_n >= params.average_period
     model_avg: Optional[nn.Module] = None
-    if rank == 0 and params.average_period > 0:
+    if accelerator.is_local_main_process and params.average_period > 0:
         # model_avg is only used with rank 0
         model_avg = copy.deepcopy(model).to(torch.float64)
 
     assert params.start_epoch > 0, params.start_epoch
+
     checkpoints = load_checkpoint_if_available(
         params=params, model=model, model_avg=model_avg
     )
 
-    model.to(device)
-    if world_size > 1:
-        logging.info("Using DDP")
-        model = DDP(model, device_ids=[rank], find_unused_parameters=True)
-
     if params.train_stage:
-        _model = model.module if isinstance(model, DDP) else model
-        model_parameters = _model.stage_parameters(params.train_stage)
+        model_parameters = model.stage_parameters(params.train_stage)
     else:
         model_parameters = model.parameters()
 
     if params.optimizer_name == "ScaledAdam":
         parameters_names = []
         if params.train_stage:  # != 0
-            _model = model.module if isinstance(model, DDP) else model
             parameters_names.append(
                 [
                     name_param_pair[0]
-                    for name_param_pair in _model.stage_named_parameters(
+                    for name_param_pair in model.stage_named_parameters(
                         params.train_stage
                     )
                 ]
@@ -1004,6 +975,7 @@ def run(rank, world_size, args):
 
     if True:
         scan_pessimistic_batches_for_oom(
+            accelerator=accelerator,
             model=model,
             train_dl=train_dl,
             optimizer=optimizer,
@@ -1011,11 +983,14 @@ def run(rank, world_size, args):
         )
 
     scaler = GradScaler(
-        enabled=(params.dtype in ["fp16", "float16"]), init_scale=1.0
+        enabled=accelerator.use_fp16, init_scale=1.0
     )
     if checkpoints and "grad_scaler" in checkpoints:
         logging.info("Loading grad scaler state dict")
         scaler.load_state_dict(checkpoints["grad_scaler"])
+
+    # Accelerator code - optimize and prepare model + training components + distrubute among devices
+    model, optimizer, train_dl, valid_dl, scheduler, scaler = accelerator.prepare(model, optimizer, train_dl, valid_dl, scheduler, scaler)
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
         if isinstance(scheduler, Eden):
@@ -1030,6 +1005,7 @@ def run(rank, world_size, args):
         params.cur_epoch = epoch
 
         train_one_epoch(
+            accelerator=accelerator,
             params=params,
             model=model,
             model_avg=model_avg,
@@ -1040,11 +1016,10 @@ def run(rank, world_size, args):
             rng=rng,
             scaler=scaler,
             tb_writer=tb_writer,
-            world_size=world_size,
-            rank=rank,
         )
 
         save_checkpoint(
+            accelerator=accelerator,
             params=params,
             model=model,
             model_avg=model_avg,
@@ -1052,14 +1027,9 @@ def run(rank, world_size, args):
             scheduler=scheduler,
             sampler=train_dl.sampler,
             scaler=scaler,
-            rank=rank,
         )
 
     logging.info("Done!")
-
-    if world_size > 1:
-        torch.distributed.barrier()
-        cleanup_dist()
 
 
 def display_and_save_batch(
@@ -1083,7 +1053,8 @@ def display_and_save_batch(
 
 
 def scan_pessimistic_batches_for_oom(
-    model: Union[nn.Module, DDP],
+    accelerator: Accelerator,
+    model: nn.Module,
     train_dl: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     params: AttributeDict,
@@ -1095,16 +1066,10 @@ def scan_pessimistic_batches_for_oom(
     )
     batches, crit_values = find_pessimistic_batches(train_dl.sampler)
 
-    dtype = torch.float32
-    if params.dtype in ["bfloat16", "bf16"]:
-        dtype = torch.bfloat16
-    elif params.dtype in ["float16", "fp16"]:
-        dtype = torch.float16
-
     for criterion, cuts in batches.items():
         batch = train_dl.dataset[cuts]
         try:
-            with torch.cuda.amp.autocast(dtype=dtype):
+            with accelerator.autocast():
                 _, loss, _ = compute_loss(
                     params=params,
                     model=model,
@@ -1134,17 +1099,8 @@ def main():
     TtsDataModule.add_arguments(parser)
     args = parser.parse_args()
     args.exp_dir = Path(args.exp_dir)
+    run(args=args)
 
-    world_size = args.world_size
-    assert world_size >= 1
-    if world_size > 1:
-        mp.spawn(run, args=(world_size, args), nprocs=world_size, join=True)
-    else:
-        run(rank=0, world_size=1, args=args)
-
-
-torch.set_num_threads(1)
-torch.set_num_interop_threads(1)
 
 if __name__ == "__main__":
     main()
