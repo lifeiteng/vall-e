@@ -1071,12 +1071,13 @@ def scan_pessimistic_batches_for_oom(
         try:
             with accelerator.autocast():
                 _, loss, _ = compute_loss(
+                    accelerator=accelerator,
                     params=params,
                     model=model,
                     batch=batch,
                     is_training=True,
                 )
-            loss.backward()
+            accelerator.backward(loss)
             optimizer.zero_grad()
         except Exception as e:
             if "CUDA out of memory" in str(e):
