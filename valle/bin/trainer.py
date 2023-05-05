@@ -560,9 +560,6 @@ def compute_validation_loss(
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
-    if world_size > 1:
-        tot_loss.reduce(loss.device)
-
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     if loss_value < params.best_valid_loss:
         params.best_valid_epoch = params.cur_epoch
@@ -697,37 +694,44 @@ def train_one_epoch(
 
             if params.average_period > 0:
                 if (
-                    rank == 0
-                    and params.batch_idx_train > 0
+                    params.batch_idx_train > 0
                     and params.batch_idx_train % params.average_period == 0
                 ):
-                    update_averaged_model(
-                        params=params,
-                        model_cur=model,
-                        model_avg=model_avg,
-                    )
+                    # Perform Operation in rank 0
+                    if rank == 0:
+                        update_averaged_model(
+                            params=params,
+                            model_cur=model,
+                            model_avg=model_avg,
+                        )
+                    # Block other ranks until first process completes
+                    torch.distributed.barrier()
 
             if (
                 params.batch_idx_train > 0
                 and params.batch_idx_train % params.save_every_n == 0
             ):
-                save_checkpoint_with_global_batch_idx(
-                    out_dir=params.exp_dir,
-                    global_batch_idx=params.batch_idx_train,
-                    model=model,
-                    model_avg=model_avg,
-                    params=params,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    sampler=train_dl.sampler,
-                    scaler=scaler,
-                    rank=rank,
-                )
-                remove_checkpoints(
-                    out_dir=params.exp_dir,
-                    topk=params.keep_last_k,
-                    rank=rank,
-                )
+                # Perform Operation in rank 0
+                if rank == 0:
+                    save_checkpoint_with_global_batch_idx(
+                        out_dir=params.exp_dir,
+                        global_batch_idx=params.batch_idx_train,
+                        model=model,
+                        model_avg=model_avg,
+                        params=params,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        sampler=train_dl.sampler,
+                        scaler=scaler,
+                        rank=rank,
+                    )
+                    remove_checkpoints(
+                        out_dir=params.exp_dir,
+                        topk=params.keep_last_k,
+                        rank=rank,
+                    )
+                # Block other ranks until first process completes
+                torch.distributed.barrier()
 
             if batch_idx % 100 == 0 and params.dtype in ["float16", "fp16"]:
                 # If the grad scale was less than 1, try increasing it.    The _growth_interval
@@ -790,26 +794,30 @@ def train_one_epoch(
                         )
 
             if params.batch_idx_train % params.valid_interval == 0:
-                logging.info("Computing validation loss")
-                with torch.cuda.amp.autocast(dtype=dtype):
-                    valid_info = compute_validation_loss(
-                        params=params,
-                        model=model,
-                        valid_dl=valid_dl,
-                        world_size=world_size,
+                # Calculate validation loss in Rank 0
+                if rank == 0:
+                    logging.info("Computing validation loss")
+                    with torch.cuda.amp.autocast(dtype=dtype):
+                        valid_info = compute_validation_loss(
+                            params=params,
+                            model=model,
+                            valid_dl=valid_dl,
+                            world_size=world_size,
+                        )
+                    model.train()
+                    logging.info(
+                        f"Epoch {params.cur_epoch}, validation: {valid_info}"
                     )
-                model.train()
-                logging.info(
-                    f"Epoch {params.cur_epoch}, validation: {valid_info}"
-                )
-                logging.info(
-                    f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-                )
+                    logging.info(
+                        f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+                    )
 
-                if tb_writer is not None:
-                    valid_info.write_summary(
-                        tb_writer, "train/valid_", params.batch_idx_train
-                    )
+                    if tb_writer is not None:
+                        valid_info.write_summary(
+                            tb_writer, "train/valid_", params.batch_idx_train
+                        )
+                # Block other ranks until first process completes
+                torch.distributed.barrier()
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
