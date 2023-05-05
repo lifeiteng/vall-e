@@ -559,9 +559,6 @@ def compute_validation_loss(
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
 
-    if world_size > 1:
-        tot_loss.reduce(loss.device)
-
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     if loss_value < params.best_valid_loss:
         params.best_valid_epoch = params.cur_epoch
@@ -796,25 +793,26 @@ def train_one_epoch(
         if params.batch_idx_train % params.valid_interval == 0:
             # Calculate validation loss in Rank 0
             model.eval()
-            logging.info("Computing validation loss")
-            with torch.cuda.amp.autocast(dtype=dtype):
-                valid_info = compute_validation_loss(
-                    params=params,
-                    model=model,
-                    valid_dl=valid_dl,
-                    world_size=world_size,
+            if rank == 0:
+                logging.info("Computing validation loss")
+                with torch.cuda.amp.autocast(dtype=dtype):
+                    valid_info = compute_validation_loss(
+                        params=params,
+                        model=model,
+                        valid_dl=valid_dl,
+                        world_size=world_size,
+                    )
+                logging.info(
+                    f"Epoch {params.cur_epoch}, validation: {valid_info}"
                 )
-            logging.info(
-                f"Epoch {params.cur_epoch}, validation: {valid_info}"
-            )
-            logging.info(
-                f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
-            )
+                logging.info(
+                    f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+                )
 
-            if tb_writer is not None:
-                valid_info.write_summary(
-                    tb_writer, "train/valid_", params.batch_idx_train
-                )
+                if tb_writer is not None:
+                    valid_info.write_summary(
+                        tb_writer, "train/valid_", params.batch_idx_train
+                    )
             # Block other ranks until first process completes
             logging.info("Waiting for validation loss to be computed")
             torch.distributed.barrier()
