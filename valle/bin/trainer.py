@@ -702,7 +702,7 @@ def train_one_epoch(
                         topk=params.keep_last_k,
                     )
 
-        if batch_idx % 100 == 0 and accelerator.use_fp16:
+        if batch_idx % 100 == 0 and accelerator.mixed_precision == 'fp16':
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
             # behavior depending on the current grad scale.
@@ -723,7 +723,7 @@ def train_one_epoch(
             cur_lr = scheduler.get_last_lr()[0]
             cur_grad_scale = (
                 scaler._scale.item()
-                if accelerator.use_fp16
+                if accelerator.mixed_precision == 'fp16'
                 else 1.0
             )
 
@@ -735,7 +735,7 @@ def train_one_epoch(
                 f"lr: {cur_lr:.2e}"
                 + (
                     f", grad_scale: {cur_grad_scale}"
-                    if accelerator.use_fp16
+                    if accelerator.mixed_precision == 'fp16'
                     else ""
                 )
             )
@@ -755,7 +755,7 @@ def train_one_epoch(
                 tot_loss.write_summary(
                     tb_writer, "train/tot_", params.batch_idx_train
                 )
-                if accelerator.use_fp16:
+                if accelerator.mixed_precision == 'fp16':
                     tb_writer.add_scalar(
                         "train/grad_scale",
                         cur_grad_scale,
@@ -973,6 +973,16 @@ def run(args):
     )
     valid_dl = dataset.valid_dataloaders(valid_cuts)
 
+    scaler = GradScaler(
+        enabled=(accelerator.mixed_precision == 'fp16'), init_scale=1.0
+    )
+    if checkpoints and "grad_scaler" in checkpoints:
+        logging.info("Loading grad scaler state dict")
+        scaler.load_state_dict(checkpoints["grad_scaler"])
+
+    # Accelerator code - optimize and prepare model + training components + distrubute among devices
+    model, optimizer, train_dl, valid_dl, scheduler, scaler = accelerator.prepare(model, optimizer, train_dl, valid_dl, scheduler, scaler)
+
     if True:
         scan_pessimistic_batches_for_oom(
             accelerator=accelerator,
@@ -981,16 +991,6 @@ def run(args):
             optimizer=optimizer,
             params=params,
         )
-
-    scaler = GradScaler(
-        enabled=accelerator.use_fp16, init_scale=1.0
-    )
-    if checkpoints and "grad_scaler" in checkpoints:
-        logging.info("Loading grad scaler state dict")
-        scaler.load_state_dict(checkpoints["grad_scaler"])
-
-    # Accelerator code - optimize and prepare model + training components + distrubute among devices
-    model, optimizer, train_dl, valid_dl, scheduler, scaler = accelerator.prepare(model, optimizer, train_dl, valid_dl, scheduler, scaler)
 
     for epoch in range(params.start_epoch, params.num_epochs + 1):
         if isinstance(scheduler, Eden):
