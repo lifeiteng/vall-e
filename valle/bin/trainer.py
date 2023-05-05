@@ -547,7 +547,6 @@ def compute_validation_loss(
     world_size: int = 1,
 ) -> MetricsTracker:
     """Run the validation process."""
-    model.eval()
     tot_loss = MetricsTracker()
 
     for batch_idx, batch in enumerate(valid_dl):
@@ -795,6 +794,7 @@ def train_one_epoch(
 
             if params.batch_idx_train % params.valid_interval == 0:
                 # Calculate validation loss in Rank 0
+                model.eval()
                 if rank == 0:
                     logging.info("Computing validation loss")
                     with torch.cuda.amp.autocast(dtype=dtype):
@@ -804,7 +804,6 @@ def train_one_epoch(
                             valid_dl=valid_dl,
                             world_size=world_size,
                         )
-                    model.train()
                     logging.info(
                         f"Epoch {params.cur_epoch}, validation: {valid_info}"
                     )
@@ -818,6 +817,7 @@ def train_one_epoch(
                         )
                 # Block other ranks until first process completes
                 torch.distributed.barrier()
+                model.train()
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     params.train_loss = loss_value
