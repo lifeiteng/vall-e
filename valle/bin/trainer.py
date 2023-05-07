@@ -265,6 +265,13 @@ def get_parser():
         help="visualize model results in eval step.",
     )
 
+    parser.add_argument(
+        "--oom-check",
+        type=str2bool,
+        default=True,
+        help="perform OOM check on dataloader batches before starting training.",
+    )
+
     add_model_arguments(parser)
 
     return parser
@@ -1010,7 +1017,7 @@ def run(rank, world_size, args):
     )
     valid_dl = dataset.valid_dataloaders(valid_cuts)
 
-    if True:
+    if params.oom_check and params.start_epoch == 1:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
