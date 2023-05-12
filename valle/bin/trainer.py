@@ -1017,7 +1017,7 @@ def run(rank, world_size, args):
     )
     valid_dl = dataset.valid_dataloaders(valid_cuts)
 
-    if params.oom_check and params.start_epoch == 1:
+    if params.oom_check:
         scan_pessimistic_batches_for_oom(
             model=model,
             train_dl=train_dl,
