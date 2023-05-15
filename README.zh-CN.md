@@ -129,8 +129,8 @@ https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/run.sh#L68
 #### 故障排除
 
 * **SummaryWriter segmentation fault (core dumped)**
-   * LINE `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
-   * FIX  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
+   * 代码行 `tb_writer = SummaryWriter(log_dir=f"{params.exp_dir}/tensorboard")`
+   * 修复  [https://github.com/tensorflow/tensorboard/pull/6135/files](https://github.com/tensorflow/tensorboard/pull/6135/files)
    ```
    file=`python  -c 'import site; print(f"{site.getsitepackages()[0]}/tensorboard/summary/writer/event_file_writer.py")'`
    sed -i 's/import tf/import tensorflow_stub as tf/g' $file
@@ -138,7 +138,7 @@ https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/run.sh#L68
 
 #### 在自定义数据集上进行训练？
 * 准备数据集給 `lhotse manifests`
-  * There are plenty of references here [lhotse/recipes](https://github.com/lhotse-speech/lhotse/tree/master/lhotse/recipes)
+  * 这里有大量的参考资料 [lhotse/recipes](https://github.com/lhotse-speech/lhotse/tree/master/lhotse/recipes)
 * `python3 bin/tokenizer.py ...`
 * `python3 bin/trainer.py ...`
 
