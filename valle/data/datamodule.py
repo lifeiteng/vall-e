@@ -308,7 +308,7 @@ class TtsDataModule:
             train_sampler = DynamicBucketingSampler(
                 cuts_train,
                 max_duration=self.args.max_duration,
-                shuffle=self.args.shuffle,
+                shuffle=True,
                 num_buckets=self.args.num_buckets,
                 drop_last=self.args.drop_last,
             )
@@ -363,7 +363,7 @@ class TtsDataModule:
         valid_sampler = DynamicBucketingSampler(
             cuts_valid,
             max_duration=self.args.max_duration,
-            shuffle=False,
+            shuffle=True,
         )
         logging.info("About to create dev dataloader")
         valid_dl = DataLoader(
@@ -390,7 +390,7 @@ class TtsDataModule:
         sampler = DynamicBucketingSampler(
             cuts,
             max_duration=self.args.max_duration,
-            shuffle=False,
+            shuffle=True,
         )
         logging.debug("About to create test dataloader")
         test_dl = DataLoader(
