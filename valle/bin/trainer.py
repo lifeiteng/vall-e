@@ -565,7 +565,8 @@ def compute_validation_loss(
         )
         assert loss.requires_grad is False
         tot_loss = tot_loss + loss_info
-
+    if world_size > 1:
+        tot_loss.reduce(loss.device)
     loss_value = tot_loss["loss"] / tot_loss["frames"]
     if loss_value < params.best_valid_loss:
         params.best_valid_epoch = params.cur_epoch
@@ -708,10 +709,7 @@ def train_one_epoch(
                         model_cur=model,
                         model_avg=model_avg,
                     )
-                if world_size > 1:
-                    # Block other ranks until first process completes
-                    torch.distributed.barrier()
-
+             
         if (
             params.batch_idx_train > 0
             and params.batch_idx_train % params.save_every_n == 0
@@ -735,10 +733,7 @@ def train_one_epoch(
                     topk=params.keep_last_k,
                     rank=rank,
                 )
-            if world_size > 1:
-                # Block other ranks until first process completes
-                torch.distributed.barrier()
-
+         
         if batch_idx % 100 == 0 and params.dtype in ["float16", "fp16"]:
             # If the grad scale was less than 1, try increasing it.    The _growth_interval
             # of the grad scaler is configurable, but we can't configure it to have different
@@ -802,31 +797,26 @@ def train_one_epoch(
         if params.batch_idx_train % params.valid_interval == 0:
             # Calculate validation loss in Rank 0
             model.eval()
-            if rank == 0:
-                logging.info("Computing validation loss")
-                with torch.cuda.amp.autocast(dtype=dtype):
-                    valid_info = compute_validation_loss(
-                        params=params,
-                        model=model,
-                        valid_dl=valid_dl,
-                        world_size=world_size,
-                    )
-                logging.info(
-                    f"Epoch {params.cur_epoch}, validation: {valid_info}"
+            logging.info("Computing validation loss")
+            with torch.cuda.amp.autocast(dtype=dtype):
+                valid_info = compute_validation_loss(
+                    params=params,
+                    model=model,
+                    valid_dl=valid_dl,
+                    world_size=world_size,
                 )
-                logging.info(
-                    f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+            logging.info(
+                f"Epoch {params.cur_epoch}, validation: {valid_info}"
+            )
+            logging.info(
+                f"Maximum memory allocated so far is {torch.cuda.max_memory_allocated()//1000000}MB"
+            )
+
+            if tb_writer is not None:
+                valid_info.write_summary(
+                    tb_writer, "train/valid_", params.batch_idx_train
                 )
 
-                if tb_writer is not None:
-                    valid_info.write_summary(
-                        tb_writer, "train/valid_", params.batch_idx_train
-                    )
-            if world_size > 1:
-                # Block other ranks until first process completes
-                logging.info("Waiting for validation loss to be computed")
-                torch.distributed.barrier()
-                logging.info("Resuming from wait state")
             model.train()
 
     loss_value = tot_loss["loss"] / tot_loss["frames"]
