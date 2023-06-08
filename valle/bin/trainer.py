@@ -577,7 +577,10 @@ def compute_validation_loss(
             f"{params.exp_dir}/eval/step-{params.batch_idx_train:06d}"
         )
         output_dir.mkdir(parents=True, exist_ok=True)
-        model.visualize(predicts, batch, output_dir=output_dir)
+        if isinstance(model, DDP):
+            model.module.visualize(predicts, batch, output_dir=output_dir)
+        else:
+            model.visualize(predicts, batch, output_dir=output_dir)
 
     return tot_loss
 
