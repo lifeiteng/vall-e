@@ -1,0 +1,36 @@
+# PyTorch
+pip install torch==1.13.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+pip install torchmetrics==0.11.1
+# fbank
+pip install librosa==0.8.1
+
+# phonemizer pypinyin
+apt-get install espeak-ng
+## OSX: brew install espeak
+pip install phonemizer==3.2.1 pypinyin==0.48.0
+
+# lhotse update to newest version
+# https://github.com/lhotse-speech/lhotse/pull/956
+# https://github.com/lhotse-speech/lhotse/pull/960
+pip uninstall lhotse
+pip uninstall lhotse
+pip install git+https://github.com/lhotse-speech/lhotse
+
+# k2
+# find the right version in https://huggingface.co/csukuangfj/k2
+pip install https://huggingface.co/csukuangfj/k2/resolve/main/cuda/k2-1.23.4.dev20230224+cuda11.6.torch1.13.1-cp310-cp310-linux_x86_64.whl
+
+# icefall
+git clone https://github.com/k2-fsa/icefall
+cd icefall
+pip install -r requirements.txt
+export PYTHONPATH=`pwd`/../icefall:$PYTHONPATH
+echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.zshrc
+echo "export PYTHONPATH=`pwd`/../icefall:\$PYTHONPATH" >> ~/.bashrc
+cd -
+source ~/.zshrc
+
+# valle
+git clone https://github.com/lifeiteng/valle.git
+cd valle
+pip install -e .
