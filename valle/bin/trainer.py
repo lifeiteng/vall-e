@@ -185,7 +185,7 @@ def get_parser():
         default=10000,
         help="""Save checkpoint after processing this number of batches"
         periodically. We save checkpoint to exp-dir/ whenever
-        params.batch_idx_train % save_every_n == 0. The checkpoint filename
+        params.batch_idx_train %% save_every_n == 0. The checkpoint filename
         has the form: f'exp-dir/checkpoint-{params.batch_idx_train}.pt'
         Note: It also saves checkpoint to `exp-dir/epoch-xxx.pt` at the
         end of each epoch where `xxx` is the epoch number counting from 0.
@@ -195,7 +195,7 @@ def get_parser():
         "--valid-interval",
         type=int,
         default=10000,
-        help="""Run validation if batch_idx % valid_interval is 0.""",
+        help="""Run validation if batch_idx %% valid_interval is 0.""",
     )
 
     parser.add_argument(
@@ -226,7 +226,7 @@ def get_parser():
         "--accumulate-grad-steps",
         type=int,
         default=1,
-        help="""update gradient when batch_idx_train % accumulate_grad_steps == 0.
+        help="""update gradient when batch_idx_train %% accumulate_grad_steps == 0.
         """,
     )
 
