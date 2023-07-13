@@ -15,7 +15,37 @@ stop_stage=3
 #
 #  - $dl_dir/LibriTTS
 #      You can download LibriTTS from https://www.openslr.org/60/
-#
+# After downloading tar.gz files, you should extract them into dl_dir/LibriTTS.
+# Ignoring *.tar.gz files, which you can download into anywhere, the structure of $dl_dir should look like below
+# 
+# dl_dir
+# ├── dev-clean.tar.gz
+# ├── dev-other.tar.gz
+# ├── LibriTTS
+# │   ├── BOOKS.txt
+# │   ├── CHAPTERS.txt
+# │   ├── dev-clean
+# │   ├── dev-other
+# │   ├── eval_sentences10.tsv
+# │   ├── LICENSE.txt
+# │   ├── NOTE.txt
+# │   ├── reader_book.tsv
+# │   ├── README_librispeech.txt
+# │   ├── README_libritts.txt
+# │   ├── speakers.tsv
+# │   ├── SPEAKERS.txt
+# │   ├── test-clean
+# │   ├── test-other
+# │   ├── train-clean-100
+# │   ├── train-clean-360
+# │   └── train-other-500
+# ├── test-clean.tar.gz
+# ├── test-other.tar.gz
+# ├── train-clean-100.tar.gz
+# ├── train-clean-360.tar.gz
+# └── train-other-500.tar.gz
+
+echo "We will download the LibriTTS dataset by default. If the downloading fails or you want to download the dataset yourself, see the comments in this script for steps."
 
 dl_dir=$PWD/download
 
