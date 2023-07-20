@@ -113,12 +113,10 @@ python3 bin/trainer.py --max-duration 40 --filter-min-duration 0.5 --filter-max-
 
 # step3 inference
 python3 bin/infer.py --output-dir infer/demos \
-    --model-name valle --norm-first true --add-prenet false \
-    --share-embedding true --norm-first true --add-prenet false \
+    --checkpoint=${exp_dir}/best-valid-loss.pt \
     --text-prompts "KNOT one point one five miles per hour." \
     --audio-prompts ./prompts/8463_294825_000043_000000.wav \
     --text "To get up and running quickly just follow the steps below." \
-    --checkpoint=${exp_dir}/best-valid-loss.pt
 
 # Demo Inference
 https://github.com/lifeiteng/lifeiteng.github.com/blob/main/valle/run.sh#L68
