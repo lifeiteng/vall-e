@@ -33,7 +33,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import torch
 import torchaudio
-from icefall.utils import str2bool
+from icefall.utils import AttributeDict, str2bool
 
 from valle.data import (
     AudioTokenizer,
@@ -42,7 +42,7 @@ from valle.data import (
     tokenize_text,
 )
 from valle.data.collation import get_text_token_collater
-from valle.models import add_model_arguments, get_model
+from valle.models import get_model
 
 
 def get_args():
@@ -70,14 +70,14 @@ def get_args():
     )
 
     # model
-    add_model_arguments(parser)
+    # add_model_arguments(parser)
+    # parser.add_argument(
+    #     "--text-tokens",
+    #     type=str,
+    #     default="data/tokenized/unique_text_tokens.k2symbols",
+    #     help="Path to the unique text tokens file.",
+    # )
 
-    parser.add_argument(
-        "--text-tokens",
-        type=str,
-        default="data/tokenized/unique_text_tokens.k2symbols",
-        help="Path to the unique text tokens file.",
-    )
     parser.add_argument(
         "--text-extractor",
         type=str,
@@ -123,29 +123,39 @@ def get_args():
     return parser.parse_args()
 
 
+def load_model(checkpoint, device):
+    if not checkpoint:
+        return None
+
+    checkpoint = torch.load(checkpoint, map_location=device)
+
+    args = AttributeDict(checkpoint)
+    model = get_model(args)
+
+    missing_keys, unexpected_keys = model.load_state_dict(
+        checkpoint["model"], strict=True
+    )
+    assert not missing_keys
+    model.to(device)
+    model.eval()
+
+    text_tokens = args.text_tokens
+
+    return model, text_tokens
+
+
 @torch.no_grad()
 def main():
     args = get_args()
     text_tokenizer = TextTokenizer(backend=args.text_extractor)
-    text_collater = get_text_token_collater(args.text_tokens)
-    audio_tokenizer = AudioTokenizer()
 
     device = torch.device("cpu")
     if torch.cuda.is_available():
         device = torch.device("cuda", 0)
+    model, text_tokens = load_model(args.checkpoint, device)
+    text_collater = get_text_token_collater(text_tokens)
 
-    model = get_model(args)
-    if args.checkpoint:
-        checkpoint = torch.load(args.checkpoint, map_location=device)
-        missing_keys, unexpected_keys = model.load_state_dict(
-            checkpoint["model"], strict=True
-        )
-        assert not missing_keys
-        # from icefall.checkpoint import save_checkpoint
-        # save_checkpoint(f"{args.checkpoint}", model=model)
-
-    model.to(device)
-    model.eval()
+    audio_tokenizer = AudioTokenizer()
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
