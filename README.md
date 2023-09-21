@@ -172,6 +172,10 @@ To cite this repository:
 }
 ```
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=lifeiteng/vall-e&type=Date)](https://star-history.com/#lifeiteng/vall-e&Date)
+
 ## Sponsor this project 赞助该项目
 
 As an independent developer, I am not employed by any company, which means my projects are freely available and open. However, I do need to pay for GPU cloud services to acquire the computational resources required for my experiments. Therefore, I need to raise funds to sustain these operational expenses. By securing sufficient funding, sponsors will receive comprehensive technical support.
