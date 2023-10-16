@@ -18,8 +18,8 @@ Phonemize Text and EnCodec Audio.
 Usage example:
     python3 bin/infer.py \
         --decoder-dim 128 --nhead 4 --num-decoder-layers 4 --model-name valle \
-        --text-prompts "Go to her." \
         --audio-prompts ./prompts/61_70970_000007_000001.wav \
+        --text-prompts "Go to her." \
         --output-dir infer/demo_valle_epoch20 \
         --checkpoint exp/valle_nano_v2/epoch-20.pt
 
@@ -49,17 +49,17 @@ def get_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--text-prompts",
-        type=str,
-        default="",
-        help="Text prompts which are separated by |.",
-    )
-
-    parser.add_argument(
         "--audio-prompts",
         type=str,
         default="",
         help="Audio prompts which are separated by | and should be aligned with --text-prompts.",
+    )
+
+    parser.add_argument(
+        "--text-prompts",
+        type=str,
+        default="",
+        help="The Text of audio prompts which are separated by |.",
     )
 
     parser.add_argument(
