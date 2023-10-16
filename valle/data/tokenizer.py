@@ -15,7 +15,7 @@
 
 import re
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Pattern, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
@@ -24,17 +24,21 @@ from encodec import EncodecModel
 from encodec.utils import convert_audio
 from lhotse.features import FeatureExtractor
 from lhotse.utils import Seconds, compute_num_frames
-from phonemizer.backend import EspeakBackend
-from phonemizer.backend.espeak.language_switch import LanguageSwitch
-from phonemizer.backend.espeak.words_mismatch import WordMismatch
-from phonemizer.punctuation import Punctuation
-from phonemizer.separator import Separator
 
 try:
     from pypinyin import Style, pinyin
     from pypinyin.style._utils import get_finals, get_initials
 except Exception:
     pass
+
+_DEFAULT_MARKS = list(';:,.!?¡¿—…"«»“”(){}[]')
+
+
+@dataclass
+class Separator:
+    word: str = "_"
+    syllable: str = "-"
+    phone: str = "|"
 
 
 class PypinyinBackend:
@@ -46,7 +50,7 @@ class PypinyinBackend:
     def __init__(
         self,
         backend="initials_finals",
-        punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
+        punctuation_marks=_DEFAULT_MARKS,
     ) -> None:
         self.backend = backend
         self.punctuation_marks = punctuation_marks
@@ -119,29 +123,16 @@ class TextTokenizer:
     def __init__(
         self,
         language="en-us",
-        backend="espeak",
+        backend="BPE",
         separator=Separator(word="_", syllable="-", phone="|"),
-        preserve_punctuation=True,
-        punctuation_marks: Union[str, Pattern] = Punctuation.default_marks(),
-        with_stress: bool = False,
-        tie: Union[bool, str] = False,
-        language_switch: LanguageSwitch = "keep-flags",
-        words_mismatch: WordMismatch = "ignore",
+        punctuation_marks=_DEFAULT_MARKS,
     ) -> None:
-        if backend == "espeak":
-            phonemizer = EspeakBackend(
-                language,
-                punctuation_marks=punctuation_marks,
-                preserve_punctuation=preserve_punctuation,
-                with_stress=with_stress,
-                tie=tie,
-                language_switch=language_switch,
-                words_mismatch=words_mismatch,
-            )
+        if backend == "BPE":
+            phonemizer = "TODO BPE"
         elif backend in ["pypinyin", "pypinyin_initials_finals"]:
             phonemizer = PypinyinBackend(
                 backend=backend,
-                punctuation_marks=punctuation_marks + separator.word,
+                punctuation_marks=punctuation_marks,
             )
         else:
             raise NotImplementedError(f"{backend}")

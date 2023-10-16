@@ -33,10 +33,8 @@ pip install torchmetrics==0.11.1
 # fbank
 pip install librosa==0.8.1
 
-# phonemizer pypinyin
-apt-get install espeak-ng
-## OSX: brew install espeak
-pip install phonemizer==3.2.1 pypinyin==0.48.0
+# pypinyin
+pip install pypinyin==0.48.0
 
 # lhotse update to newest version
 # https://github.com/lhotse-speech/lhotse/pull/956

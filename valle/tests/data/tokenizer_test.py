@@ -21,18 +21,15 @@ from valle.data import TextTokenizer
 
 class TestTextTokenizer(unittest.TestCase):
     def test_espeak(self):
-        text_tokenizer = TextTokenizer(backend="espeak")
+        text_tokenizer = TextTokenizer(backend="BPE")
 
         for (_input, _target) in [
             ("The two parties, the sheep and the wolves, met each other.",
-             ['ð', 'ə', '_', 't', 'uː', '_', 'p', 'ɑːɹ', 'ɾ',]),  #  'i', 'z', ',', '_', 'ð']
+             ['TODO',]),  #  'i', 'z', ',', '_', 'ð']
             ("Mother! dear father! do you hear me?",
-             ['m', 'ʌ', 'ð', 'ɚ', '!', '_', 'd', 'ɪɹ', '_', 'f', 'ɑː', 'ð', 'ɚ', '!']),
+             ['params_best']),
             ("\"Whoever thou art,\" She exclaimed, suddenly seizing Rodolfo's hand,",
-             ['"', 'h', 'uː', 'ɛ', 'v', 'ɚ', '_', 'ð', 'aʊ', '_', 'ɑːɹ', 't', ',', '"', '_', 'ʃ', 'iː',
-              '_', 'ɛ', 'k', 's', 'k', 'l', 'eɪ', 'm', 'd', ',', '_', 's', 'ʌ', 'd', 'ə', 'n', 'l', 'i',
-              '_', 's', 'iː', 'z', 'ɪ', 'ŋ', '_', 'ɹ', 'ə', 'd', 'ɑː', 'l', 'f', 'oʊ', 'z', '_', 'h',
-              'æ', 'n', 'd', ','])
+             ['BPE'])
         ]:
             phonemized = text_tokenizer(_input)
             self.assertEqual(phonemized[0][:len(_target)], _target)

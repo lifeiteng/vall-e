@@ -81,8 +81,8 @@ def get_args():
     parser.add_argument(
         "--text-extractor",
         type=str,
-        default="espeak",
-        help="espeak or pypinyin or pypinyin_initials_finals",
+        default="BPE",
+        help="pypinyin or pypinyin_initials_finals",
     )
 
     parser.add_argument(
