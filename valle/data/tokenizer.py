@@ -117,6 +117,33 @@ class PypinyinBackend:
         return phonemized
 
 
+class AutoTokenizer:
+    def __init__(
+        self,
+        backend="google/mt5-small",
+    ) -> None:
+        from transformers import AutoTokenizer as HFAutoTokenizer
+
+        self.tokenizer = HFAutoTokenizer.from_pretrained(backend)
+
+    def phonemize(
+        self, text: List[str], separator: Separator, strip=True, njobs=1
+    ) -> List[str]:
+        assert isinstance(text, List)
+        phonemized = []
+        for _text in text:
+            _text = re.sub(" +", " ", _text.strip())
+            _text = _text.replace(" ", separator.word)
+            inputs = self.tokenizer(_text, return_tensors="np")
+            tokens = self.tokenizer.convert_ids_to_tokens(
+                inputs["input_ids"][0].tolist()
+            )
+            # '▁The' -> '▁', 'The'
+            tokens = [tokens[0][:1], tokens[0][1:]] + tokens[1:]
+            phonemized.append(tokens)
+        return phonemized
+
+
 class TextTokenizer:
     """Phonemize Text."""
 
@@ -127,20 +154,21 @@ class TextTokenizer:
         separator=Separator(word="_", syllable="-", phone="|"),
         punctuation_marks=_DEFAULT_MARKS,
     ) -> None:
-        if backend == "BPE":
-            phonemizer = "TODO BPE"
-        elif backend in ["pypinyin", "pypinyin_initials_finals"]:
+        if backend in ["pypinyin", "pypinyin_initials_finals"]:
             phonemizer = PypinyinBackend(
                 backend=backend,
                 punctuation_marks=punctuation_marks,
             )
         else:
-            raise NotImplementedError(f"{backend}")
+            phonemizer = AutoTokenizer(backend)
 
         self.backend = phonemizer
         self.separator = separator
 
     def to_list(self, phonemized: str) -> List[str]:
+        if isinstance(self.backend, AutoTokenizer):
+            return phonemized
+
         fields = []
         for word in phonemized.split(self.separator.word):
             # "ɐ    m|iː|n?"    ɹ|ɪ|z|ɜː|v; h|ɪ|z.

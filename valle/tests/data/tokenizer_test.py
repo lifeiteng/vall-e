@@ -21,18 +21,18 @@ from valle.data import TextTokenizer
 
 class TestTextTokenizer(unittest.TestCase):
     def test_espeak(self):
-        text_tokenizer = TextTokenizer(backend="BPE")
+        text_tokenizer = TextTokenizer(backend="google/mt5-small")
 
         for (_input, _target) in [
             ("The two parties, the sheep and the wolves, met each other.",
-             ['TODO',]),  #  'i', 'z', ',', '_', 'ð']
+             ['▁', 'The', '_', 'two', '_', 'parties', ',', '_', 'the', '_', 's', 'heep', '_', 'and', '_', 'the', '_', 'wo', 'lves', ',', '_', 'met', '_', 'each', '_', 'other', '.', '</s>']),
             ("Mother! dear father! do you hear me?",
-             ['params_best']),
+             ['▁', 'Mother', '!', '_', 'de', 'ar', '_', 'father', '!', '_', 'do', '_', 'you', '_', 'hear', '_', 'me', '?', '</s>']),
             ("\"Whoever thou art,\" She exclaimed, suddenly seizing Rodolfo's hand,",
-             ['BPE'])
+             ['▁', '"', 'Who', 'ever', '_', 'thou', '_', 'art', ',"', '_', 'She', '_', 'ex', 'claim', 'ed', ',', '_', 's', 'udden', 'ly', '_', 'se', 'izing', '_', 'Rod', 'olfo', "'", 's', '_', 'hand', ',', '</s>'])
         ]:
             phonemized = text_tokenizer(_input)
-            self.assertEqual(phonemized[0][:len(_target)], _target)
+            self.assertEqual(phonemized[0], _target)
 
     def test_pypinyin(self):
         text_tokenizer = TextTokenizer(backend="pypinyin")
