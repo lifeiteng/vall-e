@@ -180,7 +180,7 @@ def main():
                         f"{args.output_dir}/{args.prefix}_fbank_{partition}"
                     )
 
-                if args.prefix.lower() in ["ljspeech", "aishell", "baker"]:
+                if args.prefix.lower() in ["ljspeech", "aishell", "baker", "commonvoice"]:
                     cut_set = cut_set.resample(24000)
                     # https://github.com/lifeiteng/vall-e/issues/90
                     # if args.prefix == "aishell":
@@ -233,8 +233,7 @@ def main():
                                 text_tokenizer, text=c.supervisions[0].text
                             )
                             c.supervisions[0].custom = {}
-                        else:
-                            assert args.prefix == "libritts"
+                        else:  # libritts, commonvoice
                             phonemes = tokenize_text(
                                 text_tokenizer, text=c.supervisions[0].text
                             )
