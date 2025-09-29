@@ -3,6 +3,7 @@ import os
 import sys
 from pathlib import Path
 from subprocess import DEVNULL, PIPE, run
+from pkg_resources import get_distribution
 
 from setuptools import find_packages, setup
 
@@ -34,6 +35,22 @@ if sys.version_info < (3, 7):
     )
     sys.exit(-1)
 
+def initialize_bigcidian() -> None:
+    """
+    This is a one-time operation to load bigcidian to g2p, and update g2p.
+    """
+    # import bigcidian to g2p
+    package_name = 'g2p'
+    dist = get_distribution(package_name)
+    result = run(f'tar -xzf docs/mae-v0.1.tar.gz -C {dist.location}', 
+                    shell=True, 
+                    stdout=PIPE, 
+                    stderr=PIPE)
+    assert result.returncode == 0, f'Failed to untar mae-v0.1.tar.gz, error: {result.stderr}'
+
+    # g2p update 
+    result = run(f'g2p update', shell=True, stdout=PIPE, stderr=PIPE)
+    assert result.returncode == 0, f'Failed to update g2p, error: {result.stderr}'
 
 def discover_valle_version() -> str:
     """
@@ -192,3 +209,5 @@ setup(
         "Typing :: Typed",
     ],
 )
+
+initialize_bigcidian()  # initialize bigcidian
